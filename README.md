@@ -25,8 +25,8 @@ to include GUI and visualization capabilities
 numba should be installed independently 
 
 ## TODO ##
- -[ ] control the units
- -[ ] a lot more... 
+ - [ ] control the units
+ - [ ] a lot more... 
 
 
 
