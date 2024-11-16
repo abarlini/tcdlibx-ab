@@ -1,0 +1,925 @@
+"""Script to visualize the TCD data.
+    It can display both electronic and vibrational TCD data.
+    The script is based on PySide6 and VTK libraries.
+
+    author: m. fuse
+    """
+import sys
+import os
+import vtk
+import copy
+import typing as tp
+import numpy as np
+from tcdlibx.utils.custom_except import NoValidData
+from tcdlibx.io.estp_io import get_elemol, PHYSFACT, get_vibmol
+from tcdlibx.calc.cube_manip import cube_parser, VecCubeData, VtcdData
+from tcdlibx.graph.helpers import filtervecatom, EleMolecule, VibMolecule
+from tcdlibx.io.jsonio import read_json, write_json
+from tcdlibx.utils.var_tools import range_parse, fuzzy_equal
+from tcdlibx.gui.dialogs import SavePngDialog, SavePngSeriesDialog, TCDDialog, StreamLineSetupDialog
+import tcdlibx.graph.cube_graphvtk as cubetk
+from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QFrame, QVBoxLayout, QStyle
+from PySide6.QtCore import QLocale, QRect
+from PySide6.QtGui import QIcon, QAction, QIconEngine, QIntValidator, QDoubleValidator
+from PySide6.QtWidgets import QLabel, QComboBox
+from PySide6.QtWidgets import QLineEdit, QFileDialog, QGridLayout, QPushButton, QSpacerItem, QSizePolicy
+from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+# estampes
+DEBUG = True
+
+class TCDvis(QMainWindow):
+    def __init__(self, moldata: tp.Optional[tp.Union[EleMolecule, VibMolecule]] = None):
+        super().__init__()
+
+        self._lastfname = 'tcdfigure.png'
+        # self._cube = None
+        self._fchk = moldata
+        if isinstance(moldata, EleMolecule):
+            self._moltype = 'ele'
+        elif isinstance(moldata, VibMolecule):
+            self._moltype = 'vib'
+        else:
+            self._moltype = None
+        self._nstates = 1
+        self._activest = 0
+        self._actors = {}
+        self._menus = {}
+        self._default = {'isoval': {'iso': 0.01},
+                         'vfield': {'vfmax': 1e2,
+                                    'vfmin': 1e5,
+                                    'mspeed': None,
+                                    'npoints': 100,
+                                    'scalellipse': 3.,
+                                    'showdir': False,
+                                    'showell': False,
+                                    'conescale': .1,
+                                    'showbar': False},}
+
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle("TCD Visualization")
+        self.setGeometry(100, 100, 800, 600)
+
+        self.createMenus()
+        self.vl = QVBoxLayout()
+        self.createBar()
+        self.createVTKrender()
+
+    def createMenus(self):
+        # Main menu
+        self._menus['main'] = []
+        mainMenu = self.menuBar()
+        mainMenu.setNativeMenuBar(False)
+        fileMenu = mainMenu.addMenu('Menu')
+        ## Open fchk
+        openButton = QAction(QIcon(''), 'Open', self)
+        openButton.setShortcut('Ctrl+O')
+        openButton.setStatusTip('Open a fchk file')
+        openButton.triggered.connect(self.open_fchk)
+        fileMenu.addAction(openButton)
+        ## save png
+        saveButton = QAction(QIcon(''), 'SavePNG', self)
+        saveButton.setShortcut('Ctrl+S')
+        saveButton.setStatusTip('Save a png')
+        saveButton.triggered.connect(self.save_png)
+        fileMenu.addAction(saveButton)
+        ## Save png to make gif
+        gifButton = QAction(QIcon(''), 'SaveGifPNGs', self)
+        gifButton.setStatusTip('Save pngs to make a gif')
+        gifButton.triggered.connect(self.save_png_rotation)
+        fileMenu.addAction(gifButton)
+        ## Exit
+        exitButton = QAction(QIcon('exit24.png'), 'Exit', self)
+        exitButton.setShortcut('Ctrl+Q')
+        exitButton.setStatusTip('Exit application')
+        exitButton.triggered.connect(self._cjclose)
+        fileMenu.addAction(exitButton)
+        # Mol menu
+        self._menus['mol'] = {}
+        fileMol = mainMenu.addMenu('Mol.')
+        grpsButton = QAction(QIcon(''), 'Open Groups', self)
+        grpsButton.setStatusTip('Open a Json file with groups')
+        grpsButton.triggered.connect(self.opengroups)
+        grpsButton.setEnabled(False)
+        self._menus['mol']['grps'] = grpsButton
+        fileMol.addAction(grpsButton)
+        # NM buttons
+        nmmenu = fileMol.addMenu('NM')
+        nmmenu.setEnabled(False)
+        self._menus['mol']['nm'] = {}
+        nmButton = QAction(QIcon(''), 'Display NM', self)
+        nmButton.setStatusTip('Display the NM vectors')
+        nmButton.setCheckable(True)
+        nmButton.triggered.connect(self.shownm)
+        nmButton.setEnabled(True)
+        nmmenu.addAction(nmButton)
+        self._menus['mol']['nm']['menu'] = nmmenu
+        self._menus['mol']['nm']['disp'] = nmButton
+        nmRevert = QAction(QIcon(''), 'Change NM phase', self)
+        nmRevert.setStatusTip('Change the phase of the NM vectors')
+        nmRevert.setCheckable(True)
+        nmRevert.triggered.connect(self.shownm)
+        nmRevert.setEnabled(True)
+        nmmenu.addAction(nmRevert)
+        self._menus['mol']['nm']['revert'] = nmRevert
+        # Ele. DMT
+        fileEDmt = fileMol.addMenu('Ele. DTMs')
+        fileEDmt.setEnabled(False) 
+        self._menus['eledmt'] = {}
+        self._menus['eledmt']['menu'] = fileEDmt
+        eemtButton = QAction(QIcon(''), 'Ele.', self)
+        eemtButton.setStatusTip('Display the electronic electric and magnetic DTMs from fchk')
+        eemtButton.setCheckable(True)
+        eemtButton.triggered.connect(self.showdmt)
+        fileEDmt.addAction(eemtButton)
+        self._menus['eledmt']['ele'] = eemtButton
+        nomtButton = QAction(QIcon(''), 'Clear', self)
+        nomtButton.setStatusTip('remove all DTM vectors')
+        nomtButton.triggered.connect(self.cleardmt)
+        fileEDmt.addAction(nomtButton)
+        self._menus['mol']['edmt'] = fileEDmt
+        # Vib. DMT
+        fileVDmt = fileMol.addMenu('Vib. DTMs')
+        fileVDmt.setEnabled(False) 
+        self._menus['vibdmt'] = {}
+        self._menus['vibdmt']['menu'] = fileVDmt
+        dmtButton = QAction(QIcon(''), 'Total', self)
+        dmtButton.setStatusTip('Display the electric and magnetic DTMs from fhck atomic tensors')
+        dmtButton.setCheckable(True)
+        dmtButton.triggered.connect(self.showdmt)
+        fileVDmt.addAction(dmtButton)
+        self._menus['vibdmt']['tot'] = dmtButton
+        emtButton = QAction(QIcon(''), 'Ele.', self)
+        emtButton.setStatusTip('Display the electronic components the electric and magnetic DTMs from fhck atomic tensors')
+        emtButton.setCheckable(True)
+        emtButton.triggered.connect(self.showdmt)
+        fileVDmt.addAction(emtButton)
+        self._menus['vibdmt']['ele'] = emtButton
+        nmtButton = QAction(QIcon(''), 'Nuc.', self)
+        nmtButton.setStatusTip('Display the nuclear components of electric and magnetic DTMs from fhck atomic tensors')
+        nmtButton.setCheckable(True)
+        nmtButton.triggered.connect(self.showdmt)
+        fileVDmt.addAction(nmtButton)
+        self._menus['vibdmt']['nuc'] = nmtButton
+        nomtButton = QAction(QIcon(''), 'Clear', self)
+        nomtButton.setStatusTip('remove all DTM vectors')
+        nomtButton.triggered.connect(self.cleardmt)
+        fileVDmt.addAction(nomtButton)
+        self._menus['mol']['vibdmt'] = fileVDmt
+
+        # ETCD
+        self._menus['etcd'] = {}
+        fileetcd = mainMenu.addMenu('ETCD')
+        etcdButton = QAction(QIcon(''), 'Load ETCD', self)
+        etcdButton.setStatusTip('Load a ETCD cube file')
+        etcdButton.triggered.connect(self.open_cube)
+        etcdButton.setEnabled(False)
+        self._menus['etcd']['tcd'] = etcdButton
+        fileetcd.addAction(etcdButton)
+        aimButton = QAction(QIcon(''), 'Add AIM', self)
+        aimButton.setStatusTip('Loads a cube file with AIM partition of the cube')
+        aimButton.triggered.connect(self.open_aim)
+        aimButton.setEnabled(False)
+        self._menus['etcd']['aim'] = aimButton
+        fileetcd.addAction(aimButton)
+        saimButton = QAction(QIcon(''), 'Show AIM Frag Space', self)
+        saimButton.setStatusTip('Shows the volume of each fragments in AIM partition scheme')
+        saimButton.triggered.connect(self.show_aim_space)
+        saimButton.setEnabled(False)
+        saimButton.setCheckable(True)
+        self._menus['etcd']['saim'] = saimButton
+        fileetcd.addAction(saimButton)
+        # ETCD dtm
+        fileTCDmt = fileetcd.addMenu('ETCD DTMs')
+        fileTCDmt.setEnabled(False)
+        self._menus['etcd']['dmt'] = fileTCDmt
+        self._menus['etcddtm'] = {}
+        tcdmtButton = QAction(QIcon(''), 'Total', self)
+        tcdmtButton.setStatusTip('Display the electric and magnetic DTMs from ETCD calculations')
+        tcdmtButton.setCheckable(True)
+        tcdmtButton.triggered.connect(self.showtcdmt)
+        fileTCDmt.addAction(tcdmtButton)
+        self._menus['etcddtm']['tot'] = tcdmtButton
+        frtcmtButton = QAction(QIcon(''), 'Fragments Contr.', self)
+        frtcmtButton.setStatusTip('Contributions of each fragment to electronic DTMs')
+        frtcmtButton.setCheckable(True)
+        frtcmtButton.setEnabled(False)
+        frtcmtButton.triggered.connect(self.showtcdmt)
+        fileTCDmt.addAction(frtcmtButton)
+        self._menus['etcddtm']['frags'] = frtcmtButton
+        nomtButton = QAction(QIcon(''), 'Clear', self)
+        nomtButton.setStatusTip('remove all ETCD DTM vectors')
+        nomtButton.triggered.connect(self.cleartcdmt)
+        fileTCDmt.addAction(nomtButton)
+
+        # VTCD
+        self._menus['vtcd'] = {}
+        filevtcd = mainMenu.addMenu('VTCD')
+        vtcdButton = QAction(QIcon(''), 'Load VTCD', self)
+        vtcdButton.setStatusTip('Load a VTCD cube file')
+        vtcdButton.triggered.connect(self.open_cube)
+        vtcdButton.setEnabled(False)
+        self._menus['vtcd']['tcd'] = vtcdButton
+        filevtcd.addAction(vtcdButton)
+        aimButton = QAction(QIcon(''), 'Add AIM', self)
+        aimButton.setStatusTip('Loads a cube file with AIM partition of the cube')
+        aimButton.triggered.connect(self.open_aim)
+        aimButton.setEnabled(False)
+        self._menus['vtcd']['aim'] = aimButton
+        filevtcd.addAction(aimButton)
+        saimButton = QAction(QIcon(''), 'Show AIM Frag Space', self)
+        saimButton.setStatusTip('Shows the volume of each fragmente in AIM partition scheme')
+        saimButton.triggered.connect(self.show_aim_space)
+        saimButton.setEnabled(False)
+        saimButton.setCheckable(True)
+        self._menus['vtcd']['saim'] = saimButton
+        filevtcd.addAction(saimButton)
+        # VTCD dtm
+        fileTCDmt = filevtcd.addMenu('VTCD DTMs')
+        fileTCDmt.setEnabled(False)
+        self._menus['vtcd']['dmt'] = fileTCDmt
+        self._menus['vtcddtm'] = {}
+        tcdmtButton = QAction(QIcon(''), 'Total', self)
+        tcdmtButton.setStatusTip('Display the electric and magnetic DTMs from VTCD calculations')
+        tcdmtButton.setCheckable(True)
+        tcdmtButton.triggered.connect(self.showtcdmt)
+        fileTCDmt.addAction(tcdmtButton)
+        self._menus['vtcddtm']['tot'] = tcdmtButton
+        frtcmtButton = QAction(QIcon(''), 'Fragments Contr.', self)
+        frtcmtButton.setStatusTip('Contributions of each fragment to electronic DTMs')
+        frtcmtButton.setCheckable(True)
+        frtcmtButton.setEnabled(False)
+        frtcmtButton.triggered.connect(self.showtcdmt)
+        fileTCDmt.addAction(frtcmtButton)
+        self._menus['vtcddtm']['frags'] = frtcmtButton
+        nomtButton = QAction(QIcon(''), 'Clear', self)
+        nomtButton.setStatusTip('remove all VTCD DTM vectors')
+        nomtButton.triggered.connect(self.cleartcdmt)
+        fileTCDmt.addAction(nomtButton)
+
+    def createBar(self):                
+        # buttons
+        grid = QGridLayout()
+        self.vl.addLayout(grid)
+        hlay = QHBoxLayout()
+        grid.addLayout(hlay, 0, 0)
+
+        # groups
+        hlay.addItem(QSpacerItem(100, 10, QSizePolicy.Expanding))
+        self._trtext = QLabel(f"Transition number:")
+        self.stline = QLineEdit()
+        stval = QIntValidator(1, self._nstates)
+        stval.setLocale(QLocale('English'))
+        self.stline.setValidator(stval)
+        self.stline.setText("1")
+        self.stline.editingFinished.connect(self._setstate)
+        self.stline.setEnabled(False)
+        self.message2 = QLabel(f"of {self._nstates}")
+        hlay.addWidget(self._trtext)
+        hlay.addWidget(self.stline)
+        hlay.addWidget(self.message2)
+        hlay.addItem(QSpacerItem(100, 10, QSizePolicy.Expanding))
+        # TCD types
+        self.prop = QComboBox()
+        self.prop.setGeometry(QRect(40, 40, 491, 31))
+        self.prop.addItem('')
+        self.prop.addItem('Streamlines')
+        self.prop.addItem('Quiver')
+        self.prop.addItem('MoE')
+        self.prop.addItem('EoM')
+        self.prop.addItem('EoE')
+        self.prop.currentIndexChanged.connect(self._enablefieldsetup)
+        grid.addWidget(self.prop, 0, 1)
+        self.etcdch = QPushButton('Show ETCD field', self)
+        self.etcdch.clicked.connect(self.showtcd)
+        self.etcdch.setEnabled(False)
+        message = QLabel(f"IsoVal:")
+        self.isoline = QLineEdit()
+        isoval = QDoubleValidator()
+        isoval.setRange(0.0000001, 2.) # FIXME this shit
+        isoval.setLocale(QLocale('English'))
+        self.isoline.setValidator(isoval)
+        self.isoline.setText(f"{self._default['isoval']['iso']:.6f}")
+        self.isoline.editingFinished.connect(self._setisoval)
+        self.isoline.setEnabled(False)
+        hlay3 = QHBoxLayout()
+        hlay3.addWidget(self.etcdch)
+        hlay3.addItem(QSpacerItem(100, 10, QSizePolicy.Expanding))
+        hlay.addWidget(message)
+        hlay.addWidget(self.isoline)
+        pixmapi = getattr(QStyle, "SP_MessageBoxInformation")
+        ticon = self.style().standardIcon(pixmapi)
+        self._fieldsetup = QPushButton(icon=ticon,
+                                       text="Setup", parent=self)
+        self._fieldsetup.clicked.connect(self._fieldstp)
+        self._fieldsetup.setEnabled(False)
+        hlay.addWidget(self._fieldsetup)
+        grid.addLayout(hlay3, 0, 2)
+
+    # VTK functions
+    def createVTKrender(self):
+        self.frame = QFrame()
+        self.vtkWidget = QVTKRenderWindowInteractor(self.frame)
+        self.vl.addWidget(self.vtkWidget)
+
+        self.ren = vtk.vtkRenderer()
+        self.ren.SetBackground(1.0, 1.0, 1.0)
+        self.vtkWidget.GetRenderWindow().AddRenderer(self.ren)
+        self.iren = self.vtkWidget.GetRenderWindow().GetInteractor()
+
+        if self._fchk is not None:
+            self._enable_molmenu()
+            self._actors['mol'] =  cubetk.fillmolecule(self._fchk.atnum,
+                                                       self._fchk.crd)
+            self.ren.AddActor(self._actors['mol'].actor)
+            self._updatenst()
+            self.stline.setEnabled(True)
+
+        self.ren.ResetCamera()
+
+        self.frame.setLayout(self.vl)
+        self.setCentralWidget(self.frame)
+
+        self.show()
+        self.iren.Initialize()
+        self.iren.Start()
+
+    def _cleanactors(self):
+        """Removes all actors from the renderer"""
+        self.ren.RemoveAllViewProps()
+
+    def _updatereder(self):
+        self.vtkWidget.GetRenderWindow().Render()
+
+    def save_png(self):
+        #
+        pngdialog = SavePngDialog(fname=self._lastfname)
+        pngdialog.exec()
+        self._lastfname = pngdialog._fname
+        if pngdialog._okexit:
+            # w2if = vtk.vtkWindowToImageFilter()
+            w2if = vtk.vtkRenderLargeImage()
+            w2if.SetInput(self.ren)
+            w2if.SetMagnification(6)
+            # w2if.SetInputBufferTypeToRGB()
+            # w2if.ReadFrontBufferOff()
+            w2if.Update()
+
+            writer = vtk.vtkPNGWriter()
+            writer.SetFileName(self._lastfname)
+            writer.SetInputConnection(w2if.GetOutputPort())
+            writer.Write()
+
+    def save_png_rotation(self):
+        #
+        pngdialog = SavePngSeriesDialog(fname="test-XXX.png")
+        pngdialog.exec()
+        fpath = pngdialog._fname
+        if pngdialog._okexit:
+            # prova
+            camera = self.ren.GetActiveCamera()
+            focal_point = camera.GetFocalPoint()
+            view_up = camera.GetViewUp()
+            position = camera.GetPosition()
+            center = self._actors['mol'].GetCenter()
+
+            axis = [0,0,0]
+            axis[0] = -1*camera.GetViewTransformMatrix().GetElement(0,0)
+            axis[1] = -1*camera.GetViewTransformMatrix().GetElement(0,1)
+            axis[2] = -1*camera.GetViewTransformMatrix().GetElement(0,2)
+
+            print(position,focal_point,view_up,)
+
+            print(camera.GetViewTransformMatrix())
+            print(camera.GetViewTransformMatrix().GetElement(0,0))
+            print(camera.GetViewTransformMatrix().GetElement(0,1))
+            print(camera.GetViewTransformMatrix().GetElement(0,2))
+
+            for n,q in enumerate([10]*35):
+
+                transform = vtk.vtkTransform()
+                transform.Identity()
+
+                transform.Translate(*center)
+                transform.RotateWXYZ(q,view_up)
+                transform.RotateWXYZ(0,axis)
+                transform.Translate(*[-1*x for x in center])
+
+                new_position = [0,0,0]
+                new_focal_point = [0,0,0]
+                transform.TransformPoint(position,new_position)
+                transform.TransformPoint(focal_point,new_focal_point)
+
+                camera.SetPosition(new_position)
+                camera.SetFocalPoint(new_focal_point)
+
+                focal_point = camera.GetFocalPoint()
+                view_up = camera.GetViewUp()
+                position = camera.GetPosition()
+
+                camera.OrthogonalizeViewUp()
+                self.ren.ResetCameraClippingRange()
+
+                renderWindow = self.vtkWidget.GetRenderWindow()
+                renderWindow.Render()
+                windowToImageFilter = vtk.vtkWindowToImageFilter()
+                windowToImageFilter.SetInput(renderWindow)
+                windowToImageFilter.Update()
+
+                fpath = fpath.replace("XXX", "{:03d}")
+                ifpath = fpath.format(n)
+                w2if = vtk.vtkWindowToImageFilter()
+                # w2if = vtk.vtkRenderLargeImage()
+                # w2if.SetInput(self.ren)
+                # w2if.SetMagnification(6)
+                w2if.SetInput(renderWindow)
+                w2if.Update()
+
+                writer = vtk.vtkPNGWriter()
+                writer.SetFileName(ifpath)
+                writer.SetInputConnection(w2if.GetOutputPort())
+                writer.Write()
+
+    # menu functions
+    def _cjclose(self):
+        self.close()
+
+    def _enable_molmenu(self):
+        for val in self._menus['mol']:
+            #print(val)
+            if not val == 'nm' and not 'dmt' in val:
+                self._menus['mol'][val].setEnabled(True)
+            elif self._moltype == 'vib':
+                self._menus['mol']['nm']['menu'].setEnabled(True)
+                self._menus['vibdmt']['menu'].setEnabled(True)
+            elif self._moltype == 'ele':
+                self._menus['eledmt']['menu'].setEnabled(True)
+        if self._moltype == 'ele':
+            self._menus['etcd']['tcd'].setEnabled(True)
+        elif self._moltype == 'vib':
+            self._menus['vtcd']['tcd'].setEnabled(True)
+        # for val in self._menus['vtcd']:
+        #    val.setEnabled(True)
+
+    def _disable_molmenu(self):
+        for val in self._menus['mol']:
+            if isinstance(self._menus['mol'][val], dict):
+                self._menus['mol'][val]['menu'].setEnabled(False)
+            else:
+                self._menus['mol'][val].setEnabled(False)
+        for val in self._menus['etcd']:
+            self._menus['etcd'][val].setEnabled(False)
+        self._menus['etcddtm']['frags'].setEnabled(False)
+        for val in self._menus['vtcd']:
+            self._menus['vtcd'][val].setEnabled(False)
+        self._menus['vtcddtm']['frags'].setEnabled(False)
+
+    def _fieldstp(self):
+        if self._default["vfield"]["mspeed"] is None:
+            self._default["vfield"]["mspeed"] = self._fchk.get_tcd(self._activest)._maxnorm/1e4
+        fieldprm = StreamLineSetupDialog(vfmax=self._default["vfield"]["vfmax"],
+                                         vfmin=self._default["vfield"]["vfmin"],
+                                         mspeed=self._default["vfield"]["mspeed"],
+                                         maxval=self._fchk.get_tcd(self._activest)._maxnorm,
+                                         nseeds=self._default["vfield"]["npoints"],
+                                         scale=self._default["vfield"]["scalellipse"],
+                                         direction=self._default["vfield"]["showdir"],
+                                         showellipse=self._default["vfield"]["showell"],
+                                         showbar=self._default["vfield"]["showbar"],)
+        fieldprm.exec()
+        # Update the default values
+        self._default["vfield"]["vfmax"] = fieldprm._vfmax
+        self._default["vfield"]["vfmin"] = fieldprm._vfmin
+        self._default["vfield"]["mspeed"] = fieldprm._mspeed
+        if fieldprm._recalseeds:
+            self._fchk.sample_ellipse_space(npts=fieldprm._nseeds, scale=fieldprm._scale)
+        self._default["vfield"]["scalellipse"] = fieldprm._scale
+        self._default["vfield"]["npoints"] = fieldprm._nseeds
+        self._default["vfield"]["showdir"] = fieldprm._direction
+        self._default["vfield"]["showell"] = fieldprm._showellipse
+        self._default["vfield"]["showbar"] = fieldprm._showbar
+        # print(self._default["vfield"])
+        if 'tcd' in self._actors:
+            if fieldprm._redrawstream:
+            # self.ren.RemoveActor(self._actors['tcd'].actor)
+                self.showtcd()
+            else:
+                if fieldprm._showbar and not 'tcdbar' in self._actors:
+                    self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
+                    self.ren.AddActor2D(self._actors['tcdbar'].actor)
+                elif 'tcdbar' in self._actors:
+                    self.ren.RemoveActor(self._actors['tcdbar'].actor)
+                    del self._actors['tcdbar']
+                if fieldprm._direction and not 'tcddir' in self._actors:
+                    tmp_cube = copy.deepcopy(self._fchk.get_tcd(self._activest))
+                    self._actors['tcddir'] = cubetk.draw_cones_nogrid(tmp_cube, self._fchk.samplepoints)
+                    self.ren.AddActor(self._actors['tcddir'].actor)
+                elif 'tcddir' in self._actors:
+                    self.ren.RemoveActor(self._actors['tcddir'].actor)
+                    del self._actors['tcddir']
+
+        if fieldprm._showellipse:
+            if self._fchk.samplepoints is None:
+                self._fchk.sample_ellipse_space(self._default["vfield"]["npoints"], scale=self._default["vfield"]["scalellipse"])
+            self._actors['ellipse'] = cubetk.draw_ellipsoid(self._fchk.samplepoints)
+            self.ren.AddActor(self._actors['ellipse'].actor)
+        elif 'ellipse' in self._actors:
+            self.ren.RemoveActor(self._actors['ellipse'].actor)
+            del self._actors['ellipse']
+        
+        self._updatereder()
+
+    def _enablefieldsetup(self):
+        if self.prop.currentText().lower() == "streamlines":
+            if self._activest in self._fchk.avail_tcd():
+                self._fieldsetup.setEnabled(True)
+        else:
+            self._fieldsetup.setEnabled(False)
+        if 'tcd' in self._actors:
+            self.ren.RemoveActor(self._actors['tcd'].actor)
+            self.showtcd()
+
+    # File opening
+    def open_fchk(self):
+        fname = QFileDialog.getOpenFileName(self, 'Select FCHK file', '.','*.fchk')[0]
+        if len(fname) == 0:
+            return None
+        self._fchkfname = os.path.basename(fname)
+        try:
+            self._fchk = EleMolecule(get_elemol(fname))
+            self._moltype = 'ele'
+        except IndexError:
+            try:
+                self._fchk = VibMolecule(get_vibmol(fname))
+                self._moltype = 'vib'
+            # Fix properly the exceptions
+            except Exception as err: print(err)
+        except Exception as err: print(err)
+
+        self._cleanactors()
+        self._actors = {}
+        # for key in self._actors:
+        #     self._actors[key] = None
+        self._updatenst()
+        # update validator
+        self._actors['mol'] =  cubetk.fillmolecule(self._fchk.atnum,
+                                                       self._fchk.crd)
+        self.ren.AddActor(self._actors['mol'].actor)
+        self._disable_molmenu()
+        self._enable_molmenu()
+        self.ren.ResetCamera()
+        self.stline.setEnabled(True)
+
+    def open_cube(self):
+        texts = {'ele': ['ETCD', 'Transition'],
+                 'vib': ['VTCD', 'NM']}
+        cub = TCDDialog(maxval=self._fchk.ntrans, texts=texts[self._moltype])
+        cub.exec()
+        if cub._cube is None:
+            return None
+        if self._moltype == 'ele':
+            cubdata = VecCubeData(cube_parser(cub._cube))
+            self._menus['etcd']["aim"].setEnabled(True)
+            self._menus['etcd']['dmt'].setEnabled(True)
+        else:
+            cubdata = VtcdData(cube_parser(cub._cube),
+                           self._fchk._moldata['evec'][cub._vib-1],
+                           self._fchk._moldata['freq'][cub._vib-1])
+            self._menus['vtcd']["aim"].setEnabled(True)
+            self._menus['vtcd']['dmt'].setEnabled(True)
+        self._fchk.add_tcd(cub._vib-1, cubdata)
+        self.stline.setText(f"{cub._vib}")
+        self._setstate()
+
+    def open_aim(self):
+        fname = QFileDialog.getOpenFileName(self, 'Select AIM cube file', '.','*.cube')[0]
+        aimcube = cube_parser(fname)
+        if aimcube.nval != 1:
+            raise NoValidData("open_aim", "aim cube must contain a single scalar dataset")
+        self._fchk.add_aim(aimcube)
+        if not self._fchk._frags is None:
+            if self._moltype == 'ele':
+                self._menus['etcddtm']["saim"].setEnabled(True)
+            elif self._moltype == 'vib':
+                self._menus['vtcddtm']["saim"].setEnabled(True)
+            if self._activest in self._fchk.avail_tcd():
+                if self._moltype == 'ele':
+                    self._menus['etcddtm']['dmt'].setEnabled(True)
+                elif self._moltype == 'vib':
+                    self._menus['vtcddtm']['frags'].setEnabled(True)
+
+    def opengroups(self):
+        jname = QFileDialog.getOpenFileName(self, 'Select JSON file', '.','*.json')[0]
+        try:
+            jdata = read_json(jname)
+            res = []
+            if not self._fchk is None:
+                natm = self._fchk.natoms
+            else:
+                natm = int(jdata["molecule"]["natoms"])
+            for i in jdata["molecule"]["frags"]:
+                if isinstance(i["fr_index"], str):
+                    tmp = range_parse(i["fr_index"], natm, flatten=True)
+                else:
+                    tmp = i['fr_index']
+                res.append([x-1 for x in tmp])
+            self._fchk.set_fragment(res)
+            if (not self._fchk._aimdata is None and 
+                self._activenm in self._fchk.avail_tcd()):
+                self._menus['vtcddtm']['frags'].setEnabled(True)
+
+            # FIXME
+            # self.__color = random_colors(len(res))
+            # if not self.fname is None:
+            #    pass
+            #    self.acpbutton.setEnabled(True)
+
+        except Exception as err: print(err)
+
+    # App state functions
+    def _setisoval(self):
+        self._default['isoval']['iso'] = float(self.isoline.text())
+        if 'tcd' in self._actors:
+            try:
+                for i, val  in enumerate([-self._default['isoval']['iso'],
+                                          self._default['isoval']['iso']]):
+                    self._actors['tcd'].filter.SetValue(i, val)
+                self._actors['tcd'].filter.Update()
+                self._updatereder()
+            except AttributeError as err:
+                print(err)
+            
+    def _updatenst(self):
+        self._nstates = self._fchk.ntrans
+        if self._moltype == 'vib':
+            self._trtext.setText("Normal mode number:")
+        elif self._moltype == 'ele':
+            self._trtext.setText("Transition number:") 
+        stval = QIntValidator(1, self._nstates)
+        stval.setLocale(QLocale('English'))
+        self.stline.setValidator(stval)
+        self.message2.setText(f"of {self._nstates}")
+
+    def _setstate(self):
+        self._activest = int(self.stline.text()) - 1
+        # check and enable/disable vfield setup button
+        self._enablefieldsetup()
+        if 'tcd' in self._actors:
+            self.ren.RemoveActor(self._actors['tcd'].actor)
+        self.cleartcdmt()
+        if self._activest in self._fchk.avail_tcd():
+            self.stline.setStyleSheet("color: white;  background-color: black")
+            self.etcdch.setEnabled(True)
+            self.isoline.setEnabled(True)
+            if self._moltype == 'ele':
+                self._menus['etcd']['dmt'].setEnabled(True)
+            elif self._moltype == 'vib':
+                self._menus['vtcd']['dmt'].setEnabled(True)
+        else:
+            self.stline.setStyleSheet("color: black;  background-color: white")
+            self.etcdch.setEnabled(False)
+            self.isoline.setEnabled(False)
+            if self._moltype == 'ele':
+                self._menus['etcd']['dmt'].setEnabled(False)
+            elif self._moltype == 'vib':
+                self._menus['vtcd']['dmt'].setEnabled(False)
+        if 'mfpdtm' in self._actors:
+            self.showdmt()
+
+    def showdmt(self):
+        # Controllare quelli checked e mostrarli
+        # crd = np.self._fchk.crd
+        flag = False
+        veccrd = []
+        veccmp = []
+        vectyp = []
+        coltyp = {'tot': 3,
+                  'ele': 2,
+                  'nuc': 1}
+        if 'mfpdtm' in self._actors:
+            self.ren.RemoveActor(self._actors['mfpdtm'].actor)
+        if self._moltype == 'ele':
+            mkey = 'eledmt'
+        elif self._moltype == 'vib':
+            mkey = 'vibdmt'
+        for key in self._menus[mkey]:
+            if key != 'menu':
+                if self._menus[mkey][key].isChecked():
+                    flag = True
+                    veccrd.append(self._fchk.get_com())
+                    veccrd.append(self._fchk.get_com())
+                    tmp_dip = self._fchk.get_dtm(self._activest, tps=key, cgs=False)
+                    veccmp.append(tmp_dip[0])
+                    veccmp.append(tmp_dip[1])
+                    vectyp.append(coltyp[key])
+                    vectyp.append(-coltyp[key])
+                    if DEBUG:
+                        print("From fchk")
+                        print(f"EDTM: {tmp_dip[0][0]:10.5f}{tmp_dip[0][1]:10.5f}{tmp_dip[0][2]:10.5f}")
+                        print(f"MDTM: {tmp_dip[1][0]:10.5f}{tmp_dip[1][1]:10.5f}{tmp_dip[1][2]:10.5f}")
+        if flag:
+            self._actors['mfpdtm'] = cubetk.draw_vectors(np.array(veccrd),
+                                                         np.array(veccmp),
+                                                         np.array(vectyp)) 
+            self.ren.AddActor(self._actors['mfpdtm'].actor)
+        self._updatereder()
+
+    def showtcdmt(self):
+        # Controllare quelli checked e mostrarli
+        # crd = np.self._fchk.crd
+        flag = False
+        veccrd = []
+        veccmp = []
+        vectyp = []
+        coltyp = 4
+        if 'tcddtm' in self._actors:
+            self.ren.RemoveActor(self._actors['tcddtm'].actor)
+        if self._menus['etcddtm']['tot'].isChecked() or self._menus['vtcddtm']['tot'].isChecked():
+            flag = True
+            veccrd.append(self._fchk.get_com())
+            veccrd.append(self._fchk.get_com())
+            vectyp.extend([coltyp, -coltyp])
+            veccmp.extend(list(self._fchk.get_tcd_dtm(self._activest, cgs=False)))
+            if DEBUG:
+                tmp_dip = self._fchk.get_tcd_dtm(self._activest, cgs=False)
+                print("From Cube")
+                print(f"EDTM: {tmp_dip[0][0]:10.5f}{tmp_dip[0][1]:10.5f}{tmp_dip[0][2]:10.5f}")
+                print(f"MDTM: {tmp_dip[1][0]:10.5f}{tmp_dip[1][1]:10.5f}{tmp_dip[1][2]:10.5f}")
+
+        if self._menus['etcddtm']['frags'].isChecked() or self._menus['vtcddtm']['frags'].isChecked():
+            flag = True
+            fragindx = self._fchk.get_frag_indx()
+            tmpvec = self._fchk.get_tcd_dtm(self._activest, tps='frags', cgs=False)
+            for i, ind in enumerate(fragindx):
+                veccrd.append(self._fchk.get_com(mask=list(ind)))
+                veccrd.append(self._fchk.get_com(mask=list(ind)))
+                veccmp.append(tmpvec[0][i, :])
+                veccmp.append(tmpvec[1][i, :])
+                vectyp.extend([coltyp, -coltyp])
+        if flag:
+            self._actors['tcddtm'] = cubetk.draw_vectors(np.array(veccrd),
+                                                         np.array(veccmp),
+                                                         np.array(vectyp)) 
+            self.ren.AddActor(self._actors['tcddtm'].actor)
+        self._updatereder()            
+
+    def cleardmt(self):
+        if 'mfpdtm' in self._actors:
+            self.ren.RemoveActor(self._actors['mfpdtm'].actor)
+            self._actors.pop('mfpdtm')
+        for key in self._menus['eledmt']:
+            if key != 'menu':
+                self._menus['eledmt'][key].setChecked(False)
+        for key in self._menus['vibdmt']:
+            if key != 'menu':
+                self._menus['vibdmt'][key].setChecked(False)
+        self._updatereder()
+
+    def cleartcdmt(self):
+        if 'tcddtm' in self._actors:
+            self.ren.RemoveActor(self._actors['tcddtm'].actor)
+            self._actors.pop('tcddtm')
+        for key in self._menus['etcddtm']:
+            self._menus['etcddtm'][key].setChecked(False)
+        for key in self._menus['vtcddtm']:
+            self._menus['vtcddtm'][key].setChecked(False)
+ 
+        self._updatereder()
+
+    def showtcd(self):
+        if 'tcd' in self._actors:
+            self.ren.RemoveActor(self._actors['tcd'].actor)
+            del self._actors['tcd']
+        if 'dtcdir' in self._actors:
+            self.ren.RemoveActor(self._actors['tcddir'].actor)
+            del self._actors['tcddir']
+        if 'dtcbar' in self._actors:
+            self.ren.RemoveActor(self._actors['tcdbar'].actor)
+            del self._actors['tcdbar']
+
+        prop_cur = self.prop.currentText().lower()
+        if prop_cur == "":
+            # print(self._actors.keys())
+            self._updatereder()
+            return None
+        tmp_cube = copy.deepcopy(self._fchk.get_tcd(self._activest))
+        tmp_iso = [-self._default['isoval']['iso'],
+                   self._default['isoval']['iso']]
+        if prop_cur == "streamlines":
+            if self._fchk.samplepoints is None:
+                self._fchk.sample_ellipse_space(self._default["vfield"]["npoints"], scale=self._default["vfield"]["scalellipse"])
+            tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
+            self._actors['tcd'] =  cubetk.fillstreamline(tmp_cube,
+                                                         clipping=(self._default["vfield"]["vfmax"],
+                                                                    self._default["vfield"]["vfmin"]),
+                                                         minspeed=self._default["vfield"]["mspeed"],
+                                                         seeds=self._fchk.samplepoints)
+            if self._default["vfield"]["showbar"]:
+                self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
+            if self._default["vfield"]["showdir"]:
+                self._actors['tcddir'] = cubetk.draw_cones_nogrid(tmp_cube, self._fchk.samplepoints)
+            
+        elif prop_cur == "quiver":
+            mask_index = filtervecatom(tmp_cube, 0.3)
+            tmp_cube.cube[:, mask_index] = 0
+            tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
+            self._actors['tcd'] = cubetk.quiv3d(tmp_cube, scale=100)
+        elif prop_cur == "moe":
+            if self._moltype == 'ele':
+                vec = tmp_cube.integrate() / self._fchk.get_exeng(self._activest)
+                tmp_cube = tmp_cube.proj_on_vec(vec=vec, rot=True, cube=True)
+            else:
+                tmp_cube = tmp_cube.proj_on_vec("moe", nucl=False, cube=True)
+            tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
+            tmp_cube.cube /= PHYSFACT.bohr2ang**3
+            self._actors['tcd'] = cubetk.countur(tmp_cube, tmp_iso)
+            if DEBUG:
+                print(f"Integrated scalar: {tmp_cube.integrate():.5f}" )
+                tmp = self._fchk.get_tcd_dtm(self._activest, cgs=False)
+                print(f"From Vec cube: {np.dot(tmp[0], tmp[1]):.5f}")
+                tmp = self._fchk.get_dtm(self._activest, cgs=False)
+                print(f"From FCHK: {np.dot(tmp[0], tmp[1]):.5f}")
+        elif prop_cur == "eom":
+            if self._moltype == 'ele':
+                vec = tmp_cube.rotorintegrate()
+                tmp_cube = tmp_cube.proj_on_vec(vec=vec, rot=False, cube=True)
+                tmp_cube.cube /= self._fchk.get_exeng(self._activest)
+            else:
+                tmp_cube = tmp_cube.proj_on_vec("eom", nucl=False, cube=True)
+            tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
+            tmp_cube.cube /= PHYSFACT.bohr2ang**3
+            self._actors['tcd'] = cubetk.countur(tmp_cube, tmp_iso)
+            if DEBUG:
+                print(f"Integrated scalar: {tmp_cube.integrate():.5f}" )
+                tmp = self._fchk.get_tcd_dtm(self._activest, cgs=False)
+                print(f"From Vec cube: {np.dot(tmp[0], tmp[1]):.5f}")
+                tmp = self._fchk.get_dtm(self._activest, cgs=False)
+                print(f"From FCHK: {np.dot(tmp[0], tmp[1]):.5f}")
+        elif prop_cur == "eoe":
+            vec = tmp_cube.integrate()
+            if self._moltype == 'ele':
+                vec /= self._fchk.get_exeng(self._activest)
+                tmp_cube = tmp_cube.proj_on_vec(vec=vec*2, rot=False, cube=True)
+            else:
+                tmp_cube = tmp_cube.proj_on_vec("eoe", nucl=False, cube=True)
+            tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
+            tmp_cube.cube /= self._fchk.get_transeng(self._activest)
+            tmp_cube.cube /= PHYSFACT.bohr2ang**3
+            self._actors['tcd'] = cubetk.countur(tmp_cube, tmp_iso)
+            if DEBUG:
+                print(f"Integrated scalar: {tmp_cube.integrate():.5f}" )
+                tmp = self._fchk.get_tcd_dtm(self._activest, cgs=False)
+                print(f"From Vec cube: {np.dot(tmp[0], tmp[0]):.5f}")
+                tmp = self._fchk.get_dtm(self._activest, cgs=False)
+                print(f"From FCHK: {np.dot(tmp[0], tmp[0]):.5f}")
+
+        self.ren.AddActor(self._actors['tcd'].actor)
+        if 'tcdbar' in self._actors:
+            self.ren.AddActor2D(self._actors['tcdbar'].actor)
+        if 'tcddir' in self._actors:
+            self.ren.AddActor(self._actors['tcddir'].actor)
+        self._updatereder()
+
+    def shownm(self):
+        if 'nm' in self._actors:
+            self.ren.RemoveActor(self._actors['nm'].actor)
+            del self._actors['nm']
+        if self._menus['mol']['nm']['disp'].isChecked():
+            mul = 1
+            if self._menus['mol']['nm']['revert'].isChecked():
+                mul = -1
+            self._actors['nm'] = cubetk.draw_nm3d(self._fchk.crd,
+                                                  self._fchk.get_evec(self._activest)*mul,
+                                                  self._fchk.atnum)
+            self.ren.AddActor(self._actors['nm'].actor)
+        self._updatereder()
+
+    # AIM functions
+    def show_aim_space(self):
+        if self._menus['vtcd']['saim'].isChecked():
+            ind = self._fchk.avail_tcd()[0]
+            tmp_cube = self._fchk.get_tcd(ind).get_frag_isosurf()
+            tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang 
+            colors = self._fchk.get_frag_colors()
+            grids = cubetk.fillcubeimage(tmp_cube, vec=False, aslist=True)
+            for i, grd in enumerate(grids):
+                isoactor = cubetk._countur(grd, [1],
+                                         active=f"scalar",
+                                         colors=[colors[i]],
+                                         opacity=0.1)
+                self.ren.AddActor(isoactor.actor)
+                self._actors[f"aimiso{i:d}"] = isoactor
+        else:
+            if "aimiso0" in self._actors:
+                for i in range(self._fchk.nfrags):
+                    self.ren.RemoveActor(self._actors[f"aimiso{i:d}"].actor)
+        self._updatereder()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    mainWin = TCDvis()
+    # mainWin.show()
+    sys.exit(app.exec())
+
+

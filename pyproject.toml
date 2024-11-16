@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools >= 50.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["tcdlibx", "progs"]
+
+# [tool.setuptools.package-data]
+# "visual.objs" = ["*.obj", "*.mtl"]
+
+[project]
+name = "tcdlibx"
+version = "0.1.0"
+requires-python = ">= 3.8"
+dependencies = ['numpy',
+#    'estampes @ git+https://github.com/mast-theolab/estampes.git',
+    'matplotlib']
+authors = [
+    {name = "Marco Fusè", email = "marcofuse@pm.me"}
+]
+description = "A simple library to manipulate and visualize vector field datasets"
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = ["Spectroscopy", "Computational Chemistry", "Visualization"]
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    'Programming Language :: Python :: 3',
+    'License :: OSI Approved :: MIT License',
+    'Operating System :: OS Independent',
+    'Topic :: Scientific/Engineering :: Chemistry',
+    'Topic :: Scientific/Engineering :: Visualization'
+]
+
+[project.optional-dependencies]
+gui = ['PySide6', 'vtk']
+
+[project.scripts]
+calc_vtcd = "progs.calc_vtcd:main"
+
+[project.gui-scripts]
+tcdvis = "progs.tcdvis:main"
+
