@@ -118,16 +118,17 @@ class Molecule():
                     self._frags['colors'] = colors
                 else:
                     self._frags['colors'] = random_colors(len(sfrags))
-        except Exception as err: print(err)
+        except Exception as err:
+            print(err)
 
     def get_frag_colors(self):
-        if not self._frags is None:
+        if self._frags is not None:
             return self._frags['colors']
         else:
             raise NoValidData("Molecule.get_frag_colors", "Fragments not defined")
 
     def get_frag_indx(self):
-        if not self._frags is None:
+        if self._frags is not None:
             return self._frags['indx']
         else:
             raise NoValidData("Molecule.get_frag_colors", "Fragments not defined")
@@ -202,9 +203,9 @@ class VibMolecule(Molecule):
             raise NoValidData("Molecule.add_tcd", "Vibration out of range")
         elif cubedata.natoms != self.natoms:
             raise NoValidData("Molecule.add_tcd", "Different molecular systems")
-        if not self._aimdata is None:
+        if self._aimdata is not None:
             self._vtcd[state] = AimCubeData(cubedata, self._aimdata)
-            if not self._frags is None:
+            if self._frags is not None:
                 self._vtcd[state].set_fragments(self._frags['indx'])
         else:
             self._vtcd[state] = cubedata
@@ -260,7 +261,7 @@ class VibMolecule(Molecule):
         self._aimdata = aimcube
         for tcd in self.avail_tcd():
             self._vtcd[tcd] = AimCubeData(self._vtcd[tcd], self._aimdata)
-            if not self._frags is None:
+            if self._frags is not None:
                 self._vtcd[tcd].set_fragments(self._frags['indx'])
 
 
@@ -329,9 +330,9 @@ class EleMolecule(Molecule):
             raise NoValidData("EleMolecule.add_tcd", "State out of range")
         elif cubedata.natoms != self.natoms:
             raise NoValidData("EleMolecule.add_tcd", "Different molecular systems")
-        if not self._aimdata is None:
+        if self._aimdata is not None:
             self._etcd[state] = AimCubeData(cubedata, self._aimdata)
-            if not self._frags is None:
+            if self._frags is not None:
                 self._etcd[state].set_fragments(self._frags['indx'])
         else:
             self._etcd[state] = cubedata
@@ -382,7 +383,7 @@ class EleMolecule(Molecule):
         self._aimdata = aimcube
         for tcd in self.avail_tcd():
             self._etcd[tcd] = AimCubeData(self._etcd[tcd], self._aimdata)
-            if not self._frags is None:
+            if self._frags is not None:
                 self._etcd[tcd].set_fragments(self._frags['indx'])       
 
 class MyvtkActor():

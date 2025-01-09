@@ -473,7 +473,7 @@ class CubeData:
         param mask: boolen mask
         # TODO check the dimensions
         """
-        if not mask is None:
+        if mask is not None:
             mask.any()
             vec_1 = self.cube[mask]
         else:

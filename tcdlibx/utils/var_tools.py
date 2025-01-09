@@ -468,7 +468,8 @@ class Slab():
 
 
 def non_nul_val(vec: np.ndarray, tresh: float) -> bool:
-    lensq = lambda a: np.dot(a, a)
+    def lensq(a):
+        return np.dot(a, a)
     if lensq(vec) < tresh**2:
         return False
     return True
@@ -512,7 +513,8 @@ class Poliedron():
 
         throw NoValidData if one of more vectors passed as parameters have length almost equals to 0.
         """
-        lun = lambda a: np.sqrt(np.dot(a, a))
+        def lun(a):
+            return np.sqrt(np.dot(a, a))
         self.__slab = []
         for i in range(3):
             self.__slab.append(Slab(self.__origin, -1*self.__extent[i],
@@ -635,11 +637,11 @@ def sample(smatrix, z_hat, m_FA, Gamma_Threshold=1.0) -> np.ndarray:
 
     R = np.ones((nz,1))*( np.power( np.random.rand(1,m_FA), (1./nz)))
 
-    unif_sph=R*X_Cnz;               # m_FA points within the hypersphere
+    unif_sph=R*X_Cnz               # m_FA points within the hypersphere
     T = np.asmatrix(np.linalg.cholesky(smatrix))    # Cholesky factorization of S => S=T’T
 
 
-    unif_ell = T.H*unif_sph ; # Hypersphere to hyperellipsoid mapping
+    unif_ell = T.H*unif_sph  # Hypersphere to hyperellipsoid mapping
 
     # Translation and scaling about the center
     z_fa=(unif_ell * np.sqrt(Gamma_Threshold)+(z_hat * np.ones((1,m_FA))))

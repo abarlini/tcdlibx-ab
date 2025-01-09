@@ -7,7 +7,7 @@ import operator
 import numpy as np
 import matplotlib.cm as cm
 from matplotlib.collections import LineCollection
-from matplotlib.animation import FuncAnimation, writers
+from matplotlib.animation import FuncAnimation
 import mpl_toolkits.mplot3d.art3d as a3d
 
 from estampes.data.physics import PHYSFACT
@@ -330,7 +330,7 @@ def stream2_plt(ax0, cubdat, axis, loops=False, background=True):
     vec2 = to_grid(vec2, ax_dim) * -1  # BUG I'm still not sure why
     box2 = to_grid(box2, ax_dim)
     # Filtering a bit
-    lwth = norm.max() / 10000  # try it
+    # lwth = norm.max() / 10000  # try it
     # vec2[0, np.where(norm < lwth)] = 0
     # vec2[1, np.where(norm < lwth)] = 0
 

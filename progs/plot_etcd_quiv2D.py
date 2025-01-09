@@ -350,7 +350,7 @@ Coordinates (in Bohr)
                 dNAC = fio.get_nac(fnames['NAC'])
                 all_nmodes = evec
                 freq = data['frq']
-                del tmp
+                # del tmp
                 PRE_FACT = 2 * np.sqrt(freq[int(idvstate-1)] /
                                        (phys_fact('au2cm-1') *
                                        PHYSCNST.finestruct) * pi)

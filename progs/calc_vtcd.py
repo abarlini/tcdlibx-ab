@@ -10,12 +10,12 @@ import sys
 import os
 import re
 import argparse
-from math import ceil, floor, pi
+from math import ceil
 import numpy as np
 # import custom library
 from estampes.data.physics import PHYSFACT
 import tcdlibx.calc.cube_manip as cb
-from tcdlibx.utils.custom_except import NoValidData
+# from tcdlibx.utils.custom_except import NoValidData
 from tcdlibx.utils.color_out import Colors
 import tcdlibx.io.fchk_io as fio
 from tcdlibx.utils.var_tools import get_ivib, print_lines
@@ -202,7 +202,7 @@ def get_transition_energy(fname):
 
 def main():
     cp = Colors()
-    DEBUG = False
+    # DEBUG = False
     PARSER = build_parser()
     OPTS = PARSER.parse_args()
     # Check that reference state data file exists
@@ -373,7 +373,7 @@ Coordinates (in Bohr)
         else:
             if tmplftypes['NAC'] == 'fchk':
                 dNAC = get_nac(fnames['NAC'])
-                all_nmodes = evec
+                # all_nmodes = evec
                 # mol.get_energy('hess')
                 # tmp = vibana(mol.get_hess(), np.array(mol.coord), np.array(mol.atmass))
                 # freq = tmp['freqs']
@@ -382,7 +382,7 @@ Coordinates (in Bohr)
                 #                        (PC.au2cm1()*PC.finesc()) * pi)
             elif tmplftypes['NAC'] == 'log':
                 dNAC = get_nac(fnames['NAC'], smodes)
-                all_nmodes = fio.get_anha_nm(OPTS.refstate)
+                # all_nmodes = fio.get_anha_nm(OPTS.refstate)
                 if not dNAC and nquanta == 1:
                     dNAC = get_nac(fnames['NAC'])
             else:

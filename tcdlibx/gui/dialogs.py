@@ -1,10 +1,10 @@
 import os
 import typing as tp
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout
-from PySide6.QtCore import QRegularExpression, QLocale, QRect
-from PySide6.QtGui import QIcon, QAction, QRegularExpressionValidator, QIntValidator, QDoubleValidator
+from PySide6.QtCore import QRegularExpression, QLocale
+from PySide6.QtGui import QRegularExpressionValidator, QIntValidator, QDoubleValidator
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QCheckBox
-from PySide6.QtWidgets import QLineEdit, QFileDialog, QGridLayout, QPushButton, QSpacerItem, QSizePolicy
+from PySide6.QtWidgets import QLineEdit, QFileDialog, QGridLayout, QPushButton
 from tcdlibx.utils.var_tools import fuzzy_equal
 
 class SavePngDialog(QDialog):
@@ -186,7 +186,7 @@ class VTCDDialog(QDialog):
         self._cube = None
         self._cubefname = "No file"
 
-        message = QLabel(f"NM number:")
+        message = QLabel("NM number:")
         self.nmline = QLineEdit()
         nmval = QIntValidator(1, self._nvib)
         nmval.setLocale(QLocale('English'))
@@ -244,7 +244,7 @@ class ETCDDialog(QDialog):
         self._cube = None
         self._cubefname = "No file"
 
-        message = QLabel(f"Transition number:")
+        message = QLabel("Transition number:")
         self.stateline = QLineEdit()
         stval = QIntValidator(1, self._nstate)
         stval.setLocale(QLocale('English'))
@@ -389,7 +389,7 @@ class StreamLineSetupDialog(QDialog):
         message = QLabel("""Bound values as fraction
  of the max val:""")
         grid.addWidget(message,0, 0)
-        message = QLabel(f"Upper denominator:")
+        message = QLabel("Upper denominator:")
         self.isoline = QLineEdit()
         maxvalid = QDoubleValidator()
         # validator for upper bound

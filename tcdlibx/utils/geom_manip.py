@@ -260,7 +260,8 @@ def quaternion_v3(crd_one, crd_two, weights):
     # T(x) =Rq(x) +d
     elem = crd_one.shape[0]
     mmat = np.zeros((elem, 4, 4))
-    norm = lambda x: np.dot(x, x)
+    def norm(x):
+        return np.dot(x, x)
     for i in range(elem):
         tmp_sq = norm(crd_one[i, :]) + norm(crd_two[i, :])
         mmat[i, 0, 0] = tmp_sq - 2 * (crd_one[i, :]*crd_two[i, :]).sum()

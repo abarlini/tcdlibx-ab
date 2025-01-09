@@ -14,13 +14,13 @@ from tcdlibx.utils.custom_except import NoValidData
 from tcdlibx.io.estp_io import get_elemol, PHYSFACT, get_vibmol
 from tcdlibx.calc.cube_manip import cube_parser, VecCubeData, VtcdData
 from tcdlibx.graph.helpers import filtervecatom, EleMolecule, VibMolecule
-from tcdlibx.io.jsonio import read_json, write_json
-from tcdlibx.utils.var_tools import range_parse, fuzzy_equal
+from tcdlibx.io.jsonio import read_json
+from tcdlibx.utils.var_tools import range_parse
 from tcdlibx.gui.dialogs import SavePngDialog, SavePngSeriesDialog, TCDDialog, StreamLineSetupDialog
 import tcdlibx.graph.cube_graphvtk as cubetk
 from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QFrame, QVBoxLayout, QStyle
 from PySide6.QtCore import QLocale, QRect
-from PySide6.QtGui import QIcon, QAction, QIconEngine, QIntValidator, QDoubleValidator
+from PySide6.QtGui import QIcon, QAction, QIntValidator, QDoubleValidator
 from PySide6.QtWidgets import QLabel, QComboBox
 from PySide6.QtWidgets import QLineEdit, QFileDialog, QGridLayout, QPushButton, QSpacerItem, QSizePolicy
 from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
@@ -267,7 +267,7 @@ class TCDvis(QMainWindow):
 
         # groups
         hlay.addItem(QSpacerItem(100, 10, QSizePolicy.Expanding))
-        self._trtext = QLabel(f"Transition number:")
+        self._trtext = QLabel("Transition number:")
         self.stline = QLineEdit()
         stval = QIntValidator(1, self._nstates)
         stval.setLocale(QLocale('English'))
@@ -294,7 +294,7 @@ class TCDvis(QMainWindow):
         self.etcdch = QPushButton('Show ETCD field', self)
         self.etcdch.clicked.connect(self.showtcd)
         self.etcdch.setEnabled(False)
-        message = QLabel(f"IsoVal:")
+        message = QLabel("IsoVal:")
         self.isoline = QLineEdit()
         isoval = QDoubleValidator()
         isoval.setRange(0.0000001, 2.) # FIXME this shit
@@ -448,7 +448,7 @@ class TCDvis(QMainWindow):
     def _enable_molmenu(self):
         for val in self._menus['mol']:
             #print(val)
-            if not val == 'nm' and not 'dmt' in val:
+            if not val == 'nm' and val not in 'dmt':
                 self._menus['mol'][val].setEnabled(True)
             elif self._moltype == 'vib':
                 self._menus['mol']['nm']['menu'].setEnabled(True)
@@ -505,13 +505,13 @@ class TCDvis(QMainWindow):
             # self.ren.RemoveActor(self._actors['tcd'].actor)
                 self.showtcd()
             else:
-                if fieldprm._showbar and not 'tcdbar' in self._actors:
+                if fieldprm._showbar and 'tcdbar' not in self._actors:
                     self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
                     self.ren.AddActor2D(self._actors['tcdbar'].actor)
                 elif 'tcdbar' in self._actors:
                     self.ren.RemoveActor(self._actors['tcdbar'].actor)
                     del self._actors['tcdbar']
-                if fieldprm._direction and not 'tcddir' in self._actors:
+                if fieldprm._direction and 'tcddir' not in self._actors:
                     tmp_cube = copy.deepcopy(self._fchk.get_tcd(self._activest))
                     self._actors['tcddir'] = cubetk.draw_cones_nogrid(tmp_cube, self._fchk.samplepoints)
                     self.ren.AddActor(self._actors['tcddir'].actor)
@@ -554,8 +554,10 @@ class TCDvis(QMainWindow):
                 self._fchk = VibMolecule(get_vibmol(fname))
                 self._moltype = 'vib'
             # Fix properly the exceptions
-            except Exception as err: print(err)
-        except Exception as err: print(err)
+            except Exception as err:
+                print(err)
+        except Exception as err:
+            print(err)
 
         self._cleanactors()
         self._actors = {}
@@ -598,7 +600,7 @@ class TCDvis(QMainWindow):
         if aimcube.nval != 1:
             raise NoValidData("open_aim", "aim cube must contain a single scalar dataset")
         self._fchk.add_aim(aimcube)
-        if not self._fchk._frags is None:
+        if self._fchk._frags is not None:
             if self._moltype == 'ele':
                 self._menus['etcddtm']["saim"].setEnabled(True)
             elif self._moltype == 'vib':
@@ -614,7 +616,7 @@ class TCDvis(QMainWindow):
         try:
             jdata = read_json(jname)
             res = []
-            if not self._fchk is None:
+            if self._fchk is not None:
                 natm = self._fchk.natoms
             else:
                 natm = int(jdata["molecule"]["natoms"])
@@ -625,7 +627,7 @@ class TCDvis(QMainWindow):
                     tmp = i['fr_index']
                 res.append([x-1 for x in tmp])
             self._fchk.set_fragment(res)
-            if (not self._fchk._aimdata is None and 
+            if (self._fchk._aimdata is not None and 
                 self._activenm in self._fchk.avail_tcd()):
                 self._menus['vtcddtm']['frags'].setEnabled(True)
 
@@ -635,7 +637,8 @@ class TCDvis(QMainWindow):
             #    pass
             #    self.acpbutton.setEnabled(True)
 
-        except Exception as err: print(err)
+        except Exception as err:
+            print(err)
 
     # App state functions
     def _setisoval(self):
@@ -905,7 +908,7 @@ class TCDvis(QMainWindow):
             grids = cubetk.fillcubeimage(tmp_cube, vec=False, aslist=True)
             for i, grd in enumerate(grids):
                 isoactor = cubetk._countur(grd, [1],
-                                         active=f"scalar",
+                                         active="scalar",
                                          colors=[colors[i]],
                                          opacity=0.1)
                 self.ren.AddActor(isoactor.actor)

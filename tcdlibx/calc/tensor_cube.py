@@ -81,7 +81,7 @@ class VcdData(VecCubeData):
         try:
             if not cubedata.cube.shape[0] == 3:
                 raise NoValidData('VtcdData', 'Not vec field data set')
-            if not typev.lower() in ['ele', 'mag']:
+            if typev.lower() not in ['ele', 'mag']:
                 raise NoValidData('VtcdData.typev', 'Only ele or mag accepted')
             VecCubeData.__init__(self, cubedata)
             self.evec = ithevec
