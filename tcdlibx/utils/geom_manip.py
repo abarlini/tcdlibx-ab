@@ -1,7 +1,8 @@
 import numpy as np
 import typing as tp
 
-def centre_of_mass(crd, atmass):
+def centre_of_mass(crd: np.ndarray, 
+    atmass: tp.Union[np.ndarray, tp.List[float]]) -> np.ndarray:
     """
     Returns the centre of mass of the coordinates
     
@@ -9,18 +10,37 @@ def centre_of_mass(crd, atmass):
         crd {[np.array(N,3)]} -- Atomic coordinates
         atmass {[np.array(N)]} -- Atomic masses
     """
+    crd = np.asarray(crd)
+    atmass = np.asarray(atmass)
+
+    if crd.ndim != 2 or crd.shape[1] != 3:
+        raise ValueError("crd must be a 2D numpy array with shape (N, 3)")
+    if atmass.ndim != 1 or atmass.shape[0] != crd.shape[0]:
+        raise ValueError("atmass must be a 1D array or list of length N (number of atoms)")
     # center of mass
     return np.average(crd, axis=0, weights=atmass)
 
-def inertiatens(crd, atmass):
+def inertiatens(crd: np.ndarray, 
+    atmass: tp.Union[np.ndarray, tp.List[float]]) -> np.ndarray:
     """
-    Computes and returns the inertia axis and the rotation values
-    TODO add checks on arguments
+    Computes and returns the inertia tensor.
+
     Arguments:
-        crd {[type]} -- Atomic coordinates
-        atmass {[type]} -- Atomic masses
+        crd {np.ndarray (N, 3)} -- Atomic coordinates
+        atmass {np.ndarray or list of length N} -- Atomic masses
+
+    Returns:
+        np.ndarray (3, 3) -- Inertia tensor
     """
-    ine_tensor = np.zeros((3, 3))
+    crd = np.asarray(crd)
+    atmass = np.asarray(atmass)
+
+    if crd.ndim != 2 or crd.shape[1] != 3:
+        raise ValueError("crd must be a 2D numpy array with shape (N, 3)")
+    if atmass.ndim != 1 or atmass.shape[0] != crd.shape[0]:
+        raise ValueError("atmass must be a 1D array or list of length N (number of atoms)")
+
+    ine_tensor = np.zeros((3, 3), dtype=crd.dtype)
     # inertia tensor
     ine_tensor[0, 0] = (atmass * (crd[:, 1]**2 + crd[:, 2]**2)).sum()
     ine_tensor[1, 1] = (atmass * (crd[:, 0]**2 + crd[:, 2]**2)).sum()
@@ -30,21 +50,50 @@ def inertiatens(crd, atmass):
     ine_tensor[1, 2] = ine_tensor[2, 1] = (-atmass * (crd[:, 1] * crd[:, 2])).sum()
     return ine_tensor
 
-def inertia(crd, atmass):
+def inertia(crd: np.ndarray, 
+    atmass: tp.Union[np.ndarray, tp.List[float]]) -> np.ndarray:
     """
     Computes and returns the inertia axis and the rotation values
-    TODO add checks on arguments
+
     Arguments:
         crd {[type]} -- Atomic coordinates
         atmass {[type]} -- Atomic masses
     """
+    crd = np.asarray(crd)
+    atmass = np.asarray(atmass)
+
+    if crd.ndim != 2 or crd.shape[1] != 3:
+        raise ValueError("crd must be a 2D numpy array with shape (N, 3)")
+    if atmass.ndim != 1 or atmass.shape[0] != crd.shape[0]:
+        raise ValueError("atmass must be a 1D array or list of length N (number of atoms)")
     ine_tensor = inertiatens(crd, atmass)
     # with Upper or not specified is not working -> right-handed
     # eigval, eigvec = np.linalg.eigh(ine_tensor, UPLO='L')
     eigval, eigvec = np.linalg.eigh(ine_tensor)
     return (eigval, eigvec)
 
-def rotmat_principal(crd, atmass):
+def rotmat_principal(crd: np.ndarray, 
+    atmass: tp.Union[np.ndarray, tp.List[float]]) -> np.ndarray:
+    """
+    Computes and returns the rotation matrix to the principal axis orientation.
+
+    Arguments:
+        crd {np.ndarray (N, 3)} -- Atomic coordinates
+        atmass {np.ndarray or list of length N} -- Atomic masses
+    Raises:
+        ValueError: If crd is not a 2D array with shape (N, 3)
+        ValueError: If atmass is not a 1D array or list of length N (number of atoms)
+
+    Returns:
+        np.ndarray (3, 3) -- Rotation matrix to principal axis orientation
+    """
+    crd = np.asarray(crd)
+    atmass = np.asarray(atmass)
+
+    if crd.ndim != 2 or crd.shape[1] != 3:
+        raise ValueError("crd must be a 2D numpy array with shape (N, 3)")
+    if atmass.ndim != 1 or atmass.shape[0] != crd.shape[0]:
+        raise ValueError("atmass must be a 1D array or list of length N (number of atoms)")
     # compute the centre of mass
     cntrmass = centre_of_mass(crd, atmass)
     # translate the system at the centre of mass
@@ -57,16 +106,28 @@ def rotmat_principal(crd, atmass):
         rotmat[:, 0] *= -1
     return rotmat
 
-def eckart_orientation(crd, atmass):
+def eckart_orientation(crd: np.ndarray, 
+    atmass: tp.Union[np.ndarray, tp.List[float]]) -> np.ndarray:
     """
     Returns the coordinates in Eckart orientation
-    TODO checks on arguments
     
     Arguments:
         crd {[np.array(N,3)]} -- Atomic coordinates
         atmass {[np.array(N)]} -- Atomic masses
+    Raises:
+        ValueError -- If crd is not a 2D array with shape (N, 3)
+        ValueError -- If atmass is not a 1D array or list of length N (number of atoms)
 
+    Returns:
+        np.ndarray (N, 3) -- Rotation matrix to principal axis orientation
     """
+    crd = np.asarray(crd)
+    atmass = np.asarray(atmass)
+
+    if crd.ndim != 2 or crd.shape[1] != 3:
+        raise ValueError("crd must be a 2D numpy array with shape (N, 3)")
+    if atmass.ndim != 1 or atmass.shape[0] != crd.shape[0]:
+        raise ValueError("atmass must be a 1D array or list of length N (number of atoms)")
     # compute the centre of mass
     cntrmass = centre_of_mass(crd, atmass)
     # translate the system at the centre of mass
@@ -79,10 +140,34 @@ def eckart_orientation(crd, atmass):
     # rotate the crd 
     return new_crd @ rotmat # matmul
 
-def traslroto(crd, atmass):
+def traslroto(
+    crd: np.ndarray,
+    atmass: tp.Union[np.ndarray, tp.List[float]]
+) -> np.ndarray:
     """
-    compute the translations/rotations of a set of coordinates
+    Computes and returns the translation and rotation vectors (translational and rotational modes)
+    for a set of atomic coordinates.
+
+    Arguments:
+        crd {np.ndarray (N, 3)} -- Atomic coordinates
+        atmass {np.ndarray or list of length N} -- Atomic masses
+
+    Raises:
+        ValueError: If crd is not a 2D array with shape (N, 3)
+        ValueError: If atmass is not a 1D array or list of length N (number of atoms)
+        ValueError: If eigenvalues are too small for a non-single atom system
+
+    Returns:
+        np.ndarray (n_tr_rot, 3*N) -- Array of translation and rotation vectors, flattened per atom
     """
+    crd = np.asarray(crd)
+    atmass = np.asarray(atmass)
+
+    if crd.ndim != 2 or crd.shape[1] != 3:
+        raise ValueError("crd must be a 2D numpy array with shape (N, 3)")
+    if atmass.ndim != 1 or atmass.shape[0] != crd.shape[0]:
+        raise ValueError("atmass must be a 1D array or list of length N (number of atoms)")
+
     natoms = crd.shape[0]
     # compute the centre of mass
     cntrmass = centre_of_mass(crd, atmass)
@@ -91,37 +176,78 @@ def traslroto(crd, atmass):
     # compute the inertia axis and rotation matrix
     eigval, eigvec = inertia(new_crd, atmass)
     new_crd = new_crd @ eigvec
-    # ignore small eigval
-    # eigval = egival[eigval > 1e-6]
-    # eigvec = eigvec[eigval > 1e-6]
-    # consistency check
+
     if not eigval[eigval > 1e-6].shape[0] and natoms != 1:
         raise ValueError('eigval too small')
+
     lvec_trarot = np.zeros((6, natoms, 3))
     lvec_trarot[0, :, :] = np.sqrt(atmass)[:, np.newaxis] * eigvec[:, 0][np.newaxis, :]
     lvec_trarot[1, :, :] = np.sqrt(atmass)[:, np.newaxis] * eigvec[:, 1][np.newaxis, :]
     lvec_trarot[2, :, :] = np.sqrt(atmass)[:, np.newaxis] * eigvec[:, 2][np.newaxis, :]
-    lvec_trarot[3, :, :] = (new_crd[:, 1][:, np.newaxis] * eigvec[:, 2][np.newaxis, :] - 
+    lvec_trarot[3, :, :] = (new_crd[:, 1][:, np.newaxis] * eigvec[:, 2][np.newaxis, :] -
                             new_crd[:, 2][:, np.newaxis] * eigvec[:, 1][np.newaxis, :]) * np.sqrt(atmass)[:, np.newaxis]
-    lvec_trarot[4, :, :] = (new_crd[:, 2][:, np.newaxis] * eigvec[:, 0][np.newaxis, :] - 
+    lvec_trarot[4, :, :] = (new_crd[:, 2][:, np.newaxis] * eigvec[:, 0][np.newaxis, :] -
                             new_crd[:, 0][:, np.newaxis] * eigvec[:, 2][np.newaxis, :]) * np.sqrt(atmass)[:, np.newaxis]
-    lvec_trarot[5, :, :] = (new_crd[:, 0][:, np.newaxis] * eigvec[:, 1][np.newaxis, :] - 
+    lvec_trarot[5, :, :] = (new_crd[:, 0][:, np.newaxis] * eigvec[:, 1][np.newaxis, :] -
                             new_crd[:, 1][:, np.newaxis] * eigvec[:, 0][np.newaxis, :]) * np.sqrt(atmass)[:, np.newaxis]
-    
+
     # norm of the tensor
     norm2 = np.einsum('ijk,ijk->i', lvec_trarot, lvec_trarot)
     trot_valid = (norm2 > 1e-8)
-    # Fix the check
     if natoms != 1 and trot_valid.sum() < 6:
         if trot_valid.sum() == 5:
             print('linear?')
         else:
             raise ValueError('eigval too small')
     lvec_trarot = lvec_trarot[trot_valid] / norm2[trot_valid][:, np.newaxis, np.newaxis]
-    
-    return lvec_trarot.reshape(-1, 3*natoms)
 
-def vibrational(cartfc, crd, atmass):
+    return lvec_trarot.reshape(-1, 3 * natoms)
+
+def vibrational(cartfc: np.ndarray, crd: np.ndarray,
+                atmass: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute vibrational frequencies, normal modes, and reduced masses for a molecular system.
+
+    Parameters
+    ----------
+    cartfc : np.ndarray
+        Cartesian force constant (Hessian) matrix, shape (N, 3, N, 3) or (N*3, N*3),
+        where N is the number of atoms.
+    crd : np.ndarray
+        Cartesian coordinates of the atoms, shape (N, 3).
+    atmass : np.ndarray
+        Atomic masses, shape (N,).
+
+    Returns
+    -------
+    freq : np.ndarray
+        Vibrational frequencies (in atomic units), shape (3*N - ntrrot,).
+    lvec : np.ndarray
+        Normal mode eigenvectors (mass-weighted), shape (3*N, 3*N - ntrrot).
+    rmas : np.ndarray
+        Reduced masses for each vibrational mode, shape (3*N - ntrrot,).
+
+    Raises
+    ------
+    Exception
+        If a null vector is encountered during orthogonalization.
+
+    Notes
+    -----
+    The function projects out translational and rotational modes, performs mass-weighting,
+    and returns vibrational properties suitable for further spectroscopic analysis.
+    """
+    cartfc = np.asarray(cartfc)
+    crd = np.asarray(crd)
+    atmass = np.asarray(atmass)
+    if cartfc.ndim == 4:
+        cartfc = cartfc.reshape((3*crd.shape[0], 3*crd.shape[0]))
+    if cartfc.shape[0] != 3 * crd.shape[0] or cartfc.shape[1] != 3 * crd.shape[0]:
+        raise ValueError("cartfc must be a square matrix of shape (3*N, 3*N) where N is the number of atoms")
+    if crd.ndim != 2 or crd.shape[1] != 3:
+        raise ValueError("crd must be a 2D numpy array with shape (N, 3)")
+    if atmass.ndim != 1 or atmass.shape[0] != crd.shape[0]:
+        raise ValueError("atmass must be a 1D array or list of length N (number of atoms)")
     natoms = crd.shape[0]
     mwvec = np.ones_like(crd) / np.sqrt(atmass)[:, np.newaxis]
     mwvec = mwvec.reshape(-1)

@@ -401,3 +401,7 @@ class MyvtkActor():
     @property
     def filter(self):
         return self._filter
+
+    def GetCenter(self):
+        """Get the center of the actor"""
+        return self._actor.GetCenter()

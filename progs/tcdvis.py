@@ -6,10 +6,15 @@
     """
 import sys
 import os
-import vtk
 import copy
 import typing as tp
 import numpy as np
+
+# Import VTK with error handling
+from tcdlibx.utils.vtk_utils import vtk
+
+# Add animation timer for streamline particle animation
+from PySide6.QtCore import QTimer
 from tcdlibx.utils.custom_except import NoValidData
 from tcdlibx.io.estp_io import get_elemol, PHYSFACT, get_vibmol
 from tcdlibx.calc.cube_manip import cube_parser, VecCubeData, VtcdData
@@ -23,7 +28,7 @@ from PySide6.QtCore import QLocale, QRect
 from PySide6.QtGui import QIcon, QAction, QIntValidator, QDoubleValidator
 from PySide6.QtWidgets import QLabel, QComboBox
 from PySide6.QtWidgets import QLineEdit, QFileDialog, QGridLayout, QPushButton, QSpacerItem, QSizePolicy
-from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+from tcdlibx.utils.vtk_utils import QVTKRenderWindowInteractor
 # estampes
 DEBUG = True
 
@@ -44,6 +49,14 @@ class TCDvis(QMainWindow):
         self._activest = 0
         self._actors = {}
         self._menus = {}
+        
+        # Animation variables for streamline particles
+        self._animation_timer = None
+        self._particle_animator = None
+        self._animation_step = 0
+        self._animation_speed = 0.02
+        self._show_particles = False
+        
         self._default = {'isoval': {'iso': 0.01},
                          'vfield': {'vfmax': 1e2,
                                     'vfmin': 1e5,
@@ -53,7 +66,9 @@ class TCDvis(QMainWindow):
                                     'showdir': False,
                                     'showell': False,
                                     'conescale': .1,
-                                    'showbar': False},}
+                                    'showbar': False,
+                                    'animate_particles': False,
+                                    'num_particles': 15},}
 
         self.initUI()
 
@@ -345,12 +360,50 @@ class TCDvis(QMainWindow):
         self.iren.Initialize()
         self.iren.Start()
 
+    def __del__(self):
+        """Clean up animation timer when object is destroyed"""
+        if hasattr(self, '_animation_timer') and self._animation_timer is not None:
+            self._animation_timer.stop()
+            self._animation_timer.deleteLater()
+        if hasattr(self, '_particle_animator') and self._particle_animator is not None:
+            self._particle_animator.stop_animation()
+
     def _cleanactors(self):
         """Removes all actors from the renderer"""
         self.ren.RemoveAllViewProps()
 
     def _updatereder(self):
         self.vtkWidget.GetRenderWindow().Render()
+
+    def animate_particles(self):
+        """Update particle positions along streamlines using VTK animator"""
+        if self._particle_animator:
+            self._particle_animator.update_particles()
+            self._updatereder()
+    
+    def start_animation(self):
+        """Start the particle animation"""
+        if self._animation_timer is None:
+            self._animation_timer = QTimer()
+            self._animation_timer.timeout.connect(self.animate_particles)
+        
+        self._animation_timer.start(50)  # 50ms = 20 FPS
+        self._show_particles = True
+        
+        if self._particle_animator:
+            self._particle_animator.start_animation()
+    
+    def stop_animation(self):
+        """Stop the particle animation"""
+        if self._animation_timer:
+            self._animation_timer.stop()
+        self._show_particles = False
+        
+        if self._particle_animator:
+            self._particle_animator.stop_animation()
+            self._particle_animator = None
+        
+        self._updatereder()
 
     def save_png(self):
         #
@@ -486,7 +539,9 @@ class TCDvis(QMainWindow):
                                          scale=self._default["vfield"]["scalellipse"],
                                          direction=self._default["vfield"]["showdir"],
                                          showellipse=self._default["vfield"]["showell"],
-                                         showbar=self._default["vfield"]["showbar"],)
+                                         showbar=self._default["vfield"]["showbar"],
+                                         animate_particles=self._default["vfield"]["animate_particles"],
+                                         num_particles=self._default["vfield"]["num_particles"],)
         fieldprm.exec()
         # Update the default values
         self._default["vfield"]["vfmax"] = fieldprm._vfmax
@@ -499,12 +554,29 @@ class TCDvis(QMainWindow):
         self._default["vfield"]["showdir"] = fieldprm._direction
         self._default["vfield"]["showell"] = fieldprm._showellipse
         self._default["vfield"]["showbar"] = fieldprm._showbar
+        self._default["vfield"]["animate_particles"] = fieldprm._animate_particles
+        self._default["vfield"]["num_particles"] = fieldprm._num_particles
         # print(self._default["vfield"])
         if 'tcd' in self._actors:
             if fieldprm._redrawstream:
             # self.ren.RemoveActor(self._actors['tcd'].actor)
                 self.showtcd()
             else:
+                # Handle animation changes
+                if self._default["vfield"]["animate_particles"] and not self._show_particles:
+                    # Start animation
+                    if hasattr(self._actors['tcd'], 'streamline_data'):
+                        streamline_polydata = self._actors['tcd'].streamline_data
+                    else:
+                        streamline_polydata = self._actors['tcd'].actor.GetMapper().GetInput()
+                    
+                    self._particle_animator = cubetk.create_streamline_particles(
+                        self.ren, streamline_polydata, num_particles=self._default["vfield"]["num_particles"])
+                    self.start_animation()
+                elif not self._default["vfield"]["animate_particles"] and self._show_particles:
+                    # Stop animation
+                    self.stop_animation()
+                
                 if fieldprm._showbar and 'tcdbar' not in self._actors:
                     self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
                     self.ren.AddActor2D(self._actors['tcdbar'].actor)
@@ -800,6 +872,10 @@ class TCDvis(QMainWindow):
         if 'dtcbar' in self._actors:
             self.ren.RemoveActor(self._actors['tcdbar'].actor)
             del self._actors['tcdbar']
+        
+        # Stop any running animation
+        if self._show_particles:
+            self.stop_animation()
 
         prop_cur = self.prop.currentText().lower()
         if prop_cur == "":
@@ -822,6 +898,19 @@ class TCDvis(QMainWindow):
                 self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
             if self._default["vfield"]["showdir"]:
                 self._actors['tcddir'] = cubetk.draw_cones_nogrid(tmp_cube, self._fchk.samplepoints)
+            
+            # Add animated particles if enabled
+            if self._default["vfield"]["animate_particles"]:
+                # Get the raw streamline polydata (not the tube filter output)
+                if hasattr(self._actors['tcd'], 'streamline_data'):
+                    streamline_polydata = self._actors['tcd'].streamline_data
+                else:
+                    # Fallback to tube filter output if streamline_data not available
+                    streamline_polydata = self._actors['tcd'].actor.GetMapper().GetInput()
+                
+                self._particle_animator = cubetk.create_streamline_particles(
+                    self.ren, streamline_polydata, num_particles=self._default["vfield"]["num_particles"])
+                self.start_animation()
             
         elif prop_cur == "quiver":
             mask_index = filtervecatom(tmp_cube, 0.3)

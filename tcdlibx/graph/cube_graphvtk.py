@@ -4,9 +4,11 @@ VTK objects
 """
 # import sys
 # import os
-import vtk
 import typing as tp
 import numpy as np
+
+# Import VTK with error handling
+from tcdlibx.utils.vtk_utils import vtk
 
 from tcdlibx.calc.cube_manip import CubeData, VecCubeData
 from tcdlibx.graph.helpers import MyvtkActor
@@ -447,7 +449,13 @@ def fillstreamline(cubdata: CubeData,
     streamline_actor.SetMapper(streamline_mapper)
     streamline_actor.GetProperty().SetOpacity(opacity)
     streamline_actor.VisibilityOn()
-    return MyvtkActor(streamline_actor, streamtube)
+    
+    # Create MyvtkActor with both streamtube and raw streamline data
+    actor_wrapper = MyvtkActor(streamline_actor, streamtube)
+    # Store the raw streamline data for particle animation
+    actor_wrapper.streamline_data = streamline.GetOutput()
+    
+    return actor_wrapper
 
 def countur(cubedata, isoval, active='scalar', colors=None, opacity=0.3):
     """
@@ -560,20 +568,273 @@ def draw_cones_nogrid(cubdata: VecCubeData, point: np.ndarray, scale: float=0.1)
     return MyvtkActor(coneglyph_actor, coneglyphs)
 
 def draw_ellipsoid(points: np.ndarray) -> MyvtkActor:
-        vtkdots = dots2vtkarray(points)
-        sphere = vtk.vtkSphereSource()
-        sphere.SetRadius(0.05)
-        glyphs = vtk.vtkGlyph3D()
-        glyphs.SetInputData(vtkdots)
-        glyphs.SetSourceConnection(sphere.GetOutputPort())
-        # glyphs.Update()
+    """
+    Draw an ellipsoid using the provided points.
 
-        glyph_mapper =  vtk.vtkPolyDataMapper()
-        glyph_mapper.SetInputConnection(glyphs.GetOutputPort())
-        glyph_actor = vtk.vtkActor()
-        glyph_actor.SetMapper(glyph_mapper)
-        glyph_actor.VisibilityOn()
-        return MyvtkActor(glyph_actor, glyphs)
+    Args:
+        points (np.ndarray): Array of 3D points defining the ellipsoid.
+
+    Returns:
+        MyvtkActor: Actor containing the ellipsoid representation.
+    """
+    # Create a point cloud
+    pointPolyData = dots2vtkarray(points)
+
+    # Create spheres at each point
+    sphereFilter = vtk.vtkSphereSource()
+    sphereFilter.SetRadius(0.05)
+    sphereFilter.SetPhiResolution(8)
+    sphereFilter.SetThetaResolution(8)
+
+    # Use vtkGlyph3D to place spheres at each point
+    glyph3D = vtk.vtkGlyph3D()
+    glyph3D.SetInputData(pointPolyData)
+    glyph3D.SetSourceConnection(sphereFilter.GetOutputPort())
+    glyph3D.Update()
+
+    # Create mapper and actor
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(glyph3D.GetOutputPort())
+
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    actor.GetProperty().SetColor(0.8, 0.8, 0.8)
+    actor.GetProperty().SetOpacity(0.5)
+
+    return MyvtkActor(actor, glyph3D)
+
+
+class StreamlineParticleAnimator:
+    """
+    Handles animated particles along streamlines in VTK.
+    """
+    
+    def __init__(self, renderer: vtk.vtkRenderer):
+        """
+        Initialize the particle animator.
+        
+        Args:
+            renderer: VTK renderer to add particles to
+        """
+        self.renderer = renderer
+        self.particle_actors = []
+        self.is_animating = False
+        
+    def create_particles(self, streamline_polydata: vtk.vtkPolyData, 
+                        num_particles: int = 5) -> list[dict]:
+        """
+        Create animated particles along streamlines.
+        
+        Args:
+            streamline_polydata: VTK polydata containing streamlines
+            num_particles: Maximum number of particles to create
+            
+        Returns:
+            List of particle data dictionaries
+        """
+        particles = []
+        
+        # Extract streamlines from polydata
+        streamlines = self._extract_streamlines(streamline_polydata)
+        
+        # Create particles for each streamline
+        for i, line_points in enumerate(streamlines):
+            if i >= num_particles:  # Limit number of particles
+                break
+                
+            if len(line_points) < 2:
+                continue
+            
+            # Create glowing sphere particle
+            particle_actor = self._create_particle_actor()
+            
+            # Store particle data
+            particle_data = {
+                'actor': particle_actor,
+                'points': line_points,
+                'position': 0.0,
+                'speed': 0.01 + i * 0.005,  # Different speeds for variety
+                'active': True
+            }
+            
+            # Set initial position at the start of the streamline
+            if len(line_points) > 0:
+                particle_actor.SetPosition(line_points[0])
+            
+            particles.append(particle_data)
+            self.renderer.AddActor(particle_actor)
+            
+        self.particle_actors = particles
+        return particles
+    
+    def _extract_streamlines(self, streamline_polydata: vtk.vtkPolyData) -> list[list]:
+        """
+        Extract individual streamlines from VTK polydata.
+        
+        Args:
+            streamline_polydata: VTK polydata containing streamlines
+            
+        Returns:
+            List of streamlines, each as a list of 3D points
+        """
+        streamlines = []
+        streamline_polydata.GetLines().InitTraversal()
+        
+        id_list = vtk.vtkIdList()
+        while streamline_polydata.GetLines().GetNextCell(id_list):
+            line_points = []
+            for i in range(id_list.GetNumberOfIds()):
+                point_id = id_list.GetId(i)
+                point = streamline_polydata.GetPoint(point_id)
+                line_points.append(point)
+            
+            if len(line_points) > 1:
+                streamlines.append(line_points)
+                
+        return streamlines
+    
+    def _create_particle_actor(self) -> vtk.vtkActor:
+        """
+        Create a glowing sphere actor for a particle.
+        
+        Returns:
+            VTK actor for the particle
+        """
+        # Create sphere
+        sphere = vtk.vtkSphereSource()
+        sphere.SetRadius(0.03)  # Radius appropriate for atomic units scale
+        sphere.SetPhiResolution(16)
+        sphere.SetThetaResolution(16)
+        
+        # Create mapper
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(sphere.GetOutputPort())
+        
+        # Create actor with glowing appearance
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetColor(1, 0.5, 0)  # Bright orange
+        actor.GetProperty().SetSpecular(0.9)
+        actor.GetProperty().SetSpecularPower(100)
+        actor.GetProperty().SetAmbient(0.7)  # Higher ambient light for glow effect
+        actor.GetProperty().SetDiffuse(0.9)  # Higher diffuse for brightness
+        
+        return actor
+    
+    def update_particles(self) -> None:
+        """
+        Update particle positions along their streamlines.
+        """
+        if not self.particle_actors:
+            return
+            
+        for particle in self.particle_actors:
+            if not particle['active']:
+                continue
+                
+            points = particle['points']
+            if len(points) < 2:
+                continue
+                
+            # Update position
+            particle['position'] += particle['speed']
+            if particle['position'] >= 1.0:
+                particle['position'] = 0.0
+            
+            # Interpolate position along streamline
+            interpolated_pos = self._interpolate_position(points, particle['position'])
+            particle['actor'].SetPosition(interpolated_pos)
+    
+    def _interpolate_position(self, points: list, position: float) -> list:
+        """
+        Interpolate position along a streamline.
+        
+        Args:
+            points: List of 3D points defining the streamline
+            position: Normalized position along streamline (0-1)
+            
+        Returns:
+            Interpolated 3D position
+        """
+        total_segments = len(points) - 1
+        segment_pos = position * total_segments
+        segment_idx = int(segment_pos)
+        local_pos = segment_pos - segment_idx
+        
+        if segment_idx >= total_segments:
+            segment_idx = total_segments - 1
+            local_pos = 1.0
+        
+        # Linear interpolation between points
+        p1 = points[segment_idx]
+        p2 = points[segment_idx + 1] if segment_idx + 1 < len(points) else points[segment_idx]
+        
+        return [
+            p1[0] + local_pos * (p2[0] - p1[0]),
+            p1[1] + local_pos * (p2[1] - p1[1]),
+            p1[2] + local_pos * (p2[2] - p1[2])
+        ]
+    
+    def start_animation(self) -> None:
+        """
+        Start the particle animation.
+        """
+        self.is_animating = True
+        for particle in self.particle_actors:
+            particle['active'] = True
+    
+    def stop_animation(self) -> None:
+        """
+        Stop the particle animation and remove all particles.
+        """
+        self.is_animating = False
+        
+        # Remove all particle actors from renderer
+        for particle in self.particle_actors:
+            self.renderer.RemoveActor(particle['actor'])
+            particle['active'] = False
+        
+        self.particle_actors = []
+    
+    def set_particle_speed(self, speed_multiplier: float) -> None:
+        """
+        Adjust the speed of all particles.
+        
+        Args:
+            speed_multiplier: Multiplier for particle speeds
+        """
+        for i, particle in enumerate(self.particle_actors):
+            base_speed = 0.01 + i * 0.005
+            particle['speed'] = base_speed * speed_multiplier
+    
+    def set_particle_visibility(self, visible: bool) -> None:
+        """
+        Show or hide all particles.
+        
+        Args:
+            visible: Whether particles should be visible
+        """
+        for particle in self.particle_actors:
+            particle['actor'].SetVisibility(visible)
+
+
+def create_streamline_particles(renderer: vtk.vtkRenderer,
+                               streamline_polydata: vtk.vtkPolyData,
+                               num_particles: int = 5) -> StreamlineParticleAnimator:
+    """
+    Create and return a streamline particle animator.
+    
+    Args:
+        renderer: VTK renderer to add particles to
+        streamline_polydata: VTK polydata containing streamlines
+        num_particles: Maximum number of particles to create
+        
+    Returns:
+        StreamlineParticleAnimator instance
+    """
+    animator = StreamlineParticleAnimator(renderer)
+    animator.create_particles(streamline_polydata, num_particles)
+    return animator
 
 
 
