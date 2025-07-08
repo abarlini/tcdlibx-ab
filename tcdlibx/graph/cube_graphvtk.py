@@ -23,6 +23,71 @@ def dots2vtkarray(dots: np.ndarray) -> vtk.vtkPolyData:
     pointPolyData1.SetPoints(points1)
     return pointPolyData1
 
+def create_vector_field_polydata(positions: np.ndarray, 
+                                vectors: np.ndarray,
+                                scalars: tp.Optional[np.ndarray] = None,
+                                vector_name: str = 'vectors',
+                                scalar_name: str = 'scalars') -> vtk.vtkPolyData:
+    """
+    Create a vtkPolyData with vectors at specified positions in space.
+    
+    Args:
+        positions: numpy array of shape (N, 3) with 3D positions
+        vectors: numpy array of shape (N, 3) with 3D vectors at each position
+        scalars: optional numpy array of shape (N,) with scalar values
+        vector_name: name for the vector array
+        scalar_name: name for the scalar array
+        
+    Returns:
+        vtkPolyData with points, vectors, and optional scalars
+        
+    """
+    n_points = positions.shape[0]
+    assert vectors.shape == (n_points, 3), "Vectors must have shape (N, 3)"
+    
+    # Create VTK points
+    points = vtk.vtkPoints()
+    points.SetNumberOfPoints(n_points)
+    
+    # Create vector array
+    vector_array = vtk.vtkDoubleArray()
+    vector_array.SetNumberOfComponents(3)
+    vector_array.SetNumberOfTuples(n_points)
+    vector_array.SetName(vector_name)
+    # If scalars are not provided filled with norm
+    scalar_array = vtk.vtkDoubleArray()
+    scalar_array.SetNumberOfComponents(1)
+    scalar_array.SetNumberOfTuples(n_points)
+    scalar_array.SetName(scalar_name)
+    
+    # Check if scalars are provided
+    # written two times the loops to avoid the if inside the loop
+    if scalars is not None:
+        assert scalars.shape == (n_points,), "Scalars must have shape (N,)"
+
+        # Fill points and vectors and scalars
+        for i in range(n_points):
+            points.SetPoint(i, positions[i])
+            vector_array.SetTuple3(i, *vectors[i])
+            scalar_array.SetValue(i, scalars[i])
+    else:
+        # Fill points and vectors only
+        for i in range(n_points):
+            points.SetPoint(i, positions[i])
+            vector_array.SetTuple3(i, *vectors[i])
+            scalar_array.SetValue(i, np.linalg.norm(vectors[i]))
+    
+    # Create polydata
+    polydata = vtk.vtkPolyData()
+    polydata.SetPoints(points)
+    polydata.GetPointData().AddArray(vector_array)
+    polydata.GetPointData().SetActiveVectors(vector_name)
+    polydata.GetPointData().AddArray(scalar_array)
+    polydata.GetPointData().SetActiveScalars(scalar_name)
+    
+    return polydata
+
+
 def fillcubeimage(data, vec=True, logscale=False, aslist=False):
     """
     Fills a vtkImageData object
@@ -156,7 +221,18 @@ def fillmolecule(atm, crd, wireframe=False,
     actor.GetProperty().SetOpacity(opacity)
     return MyvtkActor(actor, mol)
 
-def quiv3d(cubdata, lower=0.0001, upper=0.01, scale=1, logscale=False):
+def _quivfromcube(cubdata: VecCubeData,
+logscale=False) -> vtk.vtkImageData:
+    """
+    Return a vtkImageData object with the vector field
+    from a VecCubeData object.
+    """
+    grid = fillcubeimage(cubdata, logscale=logscale)
+    grid.GetPointData().SetActiveVectors('vector')
+    grid.GetPointData().SetActiveScalars('scalar')
+    return grid
+
+def quiv3d(vecdata, lower=0.0001, upper=0.01, scale=1, logscale=False):
     """
     Return a list mlab.quiv3d
     param: cubedata a vectorial dataset as CubData object
@@ -166,8 +242,12 @@ def quiv3d(cubdata, lower=0.0001, upper=0.01, scale=1, logscale=False):
            no log lower=0.001, upper=0.2
            log lower=0.0082, upper=0.0092
     """
-
-    _grid = fillcubeimage(cubdata, logscale=logscale)
+    if isinstance(vecdata, VecCubeData):
+        _grid = fillcubeimage(vecdata, logscale=logscale)
+    elif isinstance(vecdata, vtk.vtkPolyData):
+        _grid = vecdata
+    else:
+        raise TypeError("vecdata must be a VecCubeData or vtkPolyData object")
     _grid.GetPointData().SetActiveVectors('vector')
     _grid.GetPointData().SetActiveScalars('scalar')
     # _bounds = _grid.GetScalarRange()
@@ -234,26 +314,27 @@ def draw_nm3d(crd, evec, ian,
         evec *= -1
     natm = int(crd.shape[0])
     # PolyData
-    points = vtk.vtkPoints()
-    points.SetNumberOfPoints(natm)
-    vect = vtk.vtkDoubleArray()
-    vect.SetNumberOfComponents(3)
-    vect.SetNumberOfTuples(natm)
-    ones = vtk.vtkDoubleArray()
-    ones.SetNumberOfComponents(1)
-    ones.SetNumberOfTuples(natm)
-    for i in range(natm):
-        points.SetPoint(i, crd[i, :])
-        ones.SetValue(i, 1.)
-        vect.SetTuple3(i, *norm_evec[i, :])
-    vect.SetName('vector')
-    ones.SetName('ones')
-    polydata = vtk.vtkPolyData()
-    polydata.SetPoints(points)
-    polydata.GetPointData().AddArray(vect)
-    polydata.GetPointData().AddArray(ones)
-    polydata.GetPointData().SetActiveVectors('vector')
-    polydata.GetPointData().SetActiveScalars('ones')
+    # points = vtk.vtkPoints()
+    # points.SetNumberOfPoints(natm)
+    # vect = vtk.vtkDoubleArray()
+    # vect.SetNumberOfComponents(3)
+    # vect.SetNumberOfTuples(natm)
+    # ones = vtk.vtkDoubleArray()
+    # ones.SetNumberOfComponents(1)
+    # ones.SetNumberOfTuples(natm)
+    # for i in range(natm):
+    #     points.SetPoint(i, crd[i, :])
+    #     ones.SetValue(i, 1.)
+    #     vect.SetTuple3(i, *norm_evec[i, :])
+    # vect.SetName('vector')
+    # ones.SetName('ones')
+    # polydata = vtk.vtkPolyData()
+    # polydata.SetPoints(points)
+    # polydata.GetPointData().AddArray(vect)
+    # polydata.GetPointData().AddArray(ones)
+    # polydata.GetPointData().SetActiveVectors('vector')
+    # polydata.GetPointData().SetActiveScalars('ones')
+    polydata = create_vector_field_polydata(crd, norm_evec, np.ones(natm), vector_name='vector', scalar_name='ones')
 
     arrow = vtk.vtkArrowSource()
     glyphs = vtk.vtkGlyph3D()
