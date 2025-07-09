@@ -232,15 +232,26 @@ logscale=False) -> vtk.vtkImageData:
     grid.GetPointData().SetActiveScalars('scalar')
     return grid
 
-def quiv3d(vecdata, lower=0.0001, upper=0.01, scale=1, logscale=False):
+def quiv3d(
+    vecdata: tp.Union[VecCubeData, vtk.vtkPolyData],
+    lower: float = 0.0001,
+    upper: float = 0.01,
+    scale: float = 1,
+    logscale: bool = False,
+    subsample_factor: tp.Optional[int] = None
+) -> MyvtkActor:
     """
-    Return a list mlab.quiv3d
-    param: cubedata a vectorial dataset as CubData object
-    param: lower/upper the lower and upper bounds to filter
-           the vector field
-    param: logscale set if logaritmic
-           no log lower=0.001, upper=0.2
-           log lower=0.0082, upper=0.0092
+    Return a vtk actor with 3D quiver plot
+
+    Args:
+        vecdata: VecCubeData object or vtkPolyData with vector field
+        lower/upper: lower and upper bounds to filter the vector field
+        scale: scale factor for arrows
+        logscale: if True, use logarithmic scaling
+        subsample_factor: if provided, show only every nth vector for better performance
+
+    Returns:
+        MyvtkActor with quiver plot
     """
     if isinstance(vecdata, VecCubeData):
         _grid = fillcubeimage(vecdata, logscale=logscale)
@@ -248,18 +259,31 @@ def quiv3d(vecdata, lower=0.0001, upper=0.01, scale=1, logscale=False):
         _grid = vecdata
     else:
         raise TypeError("vecdata must be a VecCubeData or vtkPolyData object")
+
     _grid.GetPointData().SetActiveVectors('vector')
     _grid.GetPointData().SetActiveScalars('scalar')
-    # _bounds = _grid.GetScalarRange()
-    # visualizzo 1/100?
-    # _bounds2 = (0, _bounds[1]/100)
+
+    # Apply subsampling if requested
+    # Only apply subsampling for VecCubeData
+    # For vtkPolyData, we assume it is from a clustering
+    if subsample_factor is not None and subsample_factor > 1 and isinstance(vecdata, VecCubeData):
+        # For image data, use masking
+        geom_filter = vtk.vtkImageDataGeometryFilter()
+        geom_filter.SetInputData(_grid)
+        geom_filter.Update()
+
+        mask = vtk.vtkMaskPoints()
+        mask.SetInputConnection(geom_filter.GetOutputPort())
+        mask.SetOnRatio(subsample_factor)
+        mask.Update()
+        _grid = mask.GetOutput()
 
     arrow = vtk.vtkArrowSource()
     glyphs = vtk.vtkGlyph3D()
     glyphs.SetInputData(_grid)
     glyphs.SetSourceConnection(arrow.GetOutputPort())
     # the mapper
-    glyph_mapper =  vtk.vtkPolyDataMapper()
+    glyph_mapper = vtk.vtkPolyDataMapper()
     glyph_mapper.SetInputConnection(glyphs.GetOutputPort())
     glyph_actor = vtk.vtkActor()
     glyph_actor.SetMapper(glyph_mapper)
@@ -272,8 +296,8 @@ def quiv3d(vecdata, lower=0.0001, upper=0.01, scale=1, logscale=False):
     glyphs.SetColorModeToColorByScalar()
     # color map
     lut = vtk.vtkColorTransferFunction()
-    lut.AddRGBPoint(lower, 1,0,0)
-    lut.AddRGBPoint(upper, 0,1,0)
+    lut.AddRGBPoint(lower, 1, 0, 0)
+    lut.AddRGBPoint(upper, 0, 1, 0)
     glyph_mapper.SetLookupTable(lut)
     # filtering
     threshold = vtk.vtkThresholdPoints()

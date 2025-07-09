@@ -340,6 +340,58 @@ class EditIntLine():
     def edit(self):
         return self._edit
 
+class QuiverSetupDialog(QDialog):
+    """Dialog for setting up quiver plot parameters
+
+    Args:
+        QDialog (_type_): _description_
+    """
+
+    def __init__(self,
+                 scale: float,
+                 subsamp: int,
+                 parent: tp.Optional[tp.Union[QDialog, None]] = None) -> None:
+        """ initialize the dialog. Requires a dictionary with the parameters,
+            the maximum norm value in the field and optionally a parent dialog
+
+        Args:
+            scale (float): scaling factor for arrows
+            nseeds (int): Subsampling of the grid for arrows
+            parent (tp.Optional[tp.Union[QDialog, None]]): Not required
+        """
+        super().__init__(parent)
+        self._scale = scale
+        self._subsamp = subsamp
+        self.setWindowTitle("Quiver Setup Dialog")
+        self.vlay = QVBoxLayout()
+        grid = QGridLayout()
+        self.vlay.addLayout(grid)
+
+        message = QLabel("Scaling factor for arrows:")
+        self._scalemol = EditDoubleLine("Scaling factor", scale, QDoubleValidator(0.1, 10.0, 2))
+        grid.addWidget(message, 0, 0)
+        grid.addLayout(self._scalemol._hlay, 1, 0)
+
+        message = QLabel("Subsamplig")
+        self._subsampline = EditIntLine("Subsampling", subsamp, QIntValidator(1, 500))
+        grid.addWidget(message, 2, 0)
+        grid.addLayout(self._subsampline._hlay, 3, 0)
+
+        QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel 
+
+        self.buttonBox = QDialogButtonBox(QBtn)
+        self.buttonBox.accepted.connect(self.accept)
+        self.accepted.connect(self._setvals)
+        self.buttonBox.rejected.connect(self.reject)
+
+        # self.vlay.addWidget(message)
+        self.vlay.addWidget(self.buttonBox)
+        self.setLayout(self.vlay)
+
+    def _setvals(self):
+        self._scale = self._scalemol._getvalue()
+        self._subsamp = self._subsampline._getvalue()
+
 
 class StreamLineSetupDialog(QDialog):
     """Dialog for setting up stream lines

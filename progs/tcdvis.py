@@ -4,36 +4,64 @@
 
     author: m. fuse
     """
-import sys
-import os
+# Standard library imports
 import copy
+import os
+import sys
 import typing as tp
+
+# Third-party imports
 import numpy as np
 
-# Import VTK with error handling
-from tcdlibx.utils.vtk_utils import vtk
+# PySide6/Qt imports
+from PySide6.QtCore import QLocale, QRect, QTimer
+from PySide6.QtGui import QAction, QDoubleValidator, QIcon, QIntValidator
+from PySide6.QtWidgets import (
+    QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+    QLabel, QLineEdit, QMainWindow, QPushButton, QSizePolicy, QSpacerItem,
+    QStyle, QVBoxLayout
+)
 
-# Add animation timer for streamline particle animation
-from PySide6.QtCore import QTimer
-from tcdlibx.utils.custom_except import NoValidData
-from tcdlibx.io.estp_io import get_elemol, PHYSFACT, get_vibmol
-from tcdlibx.calc.cube_manip import cube_parser, VecCubeData, VtcdData
-from tcdlibx.graph.helpers import filtervecatom, EleMolecule, VibMolecule
-from tcdlibx.io.jsonio import read_json
-from tcdlibx.utils.var_tools import range_parse
-from tcdlibx.gui.dialogs import SavePngDialog, SavePngSeriesDialog, TCDDialog, StreamLineSetupDialog
+# Local imports - tcdlibx package
+from tcdlibx.calc.cube_manip import VecCubeData, VtcdData, cube_parser
+from tcdlibx.graph.helpers import EleMolecule, VibMolecule, filtervecatom
 import tcdlibx.graph.cube_graphvtk as cubetk
-from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QFrame, QVBoxLayout, QStyle
-from PySide6.QtCore import QLocale, QRect
-from PySide6.QtGui import QIcon, QAction, QIntValidator, QDoubleValidator
-from PySide6.QtWidgets import QLabel, QComboBox
-from PySide6.QtWidgets import QLineEdit, QFileDialog, QGridLayout, QPushButton, QSpacerItem, QSizePolicy
-from tcdlibx.utils.vtk_utils import QVTKRenderWindowInteractor
-# estampes
+from tcdlibx.gui.dialogs import (
+    SavePngDialog, SavePngSeriesDialog, StreamLineSetupDialog, TCDDialog, QuiverSetupDialog
+)
+from tcdlibx.io.estp_io import PHYSFACT, get_elemol, get_vibmol
+from tcdlibx.io.jsonio import read_json
+from tcdlibx.utils.custom_except import NoValidData
+from tcdlibx.utils.var_tools import range_parse
+from tcdlibx.utils.vtk_utils import QVTKRenderWindowInteractor, vtk
+
+# Module configuration
 DEBUG = True
 
 class TCDvis(QMainWindow):
+    """TCD Visualization Application.
+    
+    A PySide6/VTK-based application for visualizing Transition Current Density (TCD)
+    data for both electronic and vibrational transitions.
+    
+    This class provides a complete GUI interface for:
+    - Loading and visualizing molecular structure data (fchk files)
+    - Displaying electronic and vibrational TCD data as streamlines, quiver plots, etc.
+    - Animated particle visualization along streamlines
+    - Interactive isosurface and vector field visualization
+    - Export capabilities for images and data
+    
+    Args:
+        moldata: Optional molecular data (EleMolecule or VibMolecule instance).
+                If provided, the application will initialize with this data loaded.
+    """
+    
     def __init__(self, moldata: tp.Optional[tp.Union[EleMolecule, VibMolecule]] = None):
+        """Initialize the TCD visualization application.
+        
+        Args:
+            moldata: Optional molecular data to load on startup.
+        """
         super().__init__()
 
         self._lastfname = 'tcdfigure.png'
@@ -68,7 +96,9 @@ class TCDvis(QMainWindow):
                                     'conescale': .1,
                                     'showbar': False,
                                     'animate_particles': False,
-                                    'num_particles': 15},}
+                                    'num_particles': 15},
+                         'quiver': {'scale': 100,
+                                   'subsample': 5},}
 
         self.initUI()
 
@@ -312,7 +342,7 @@ class TCDvis(QMainWindow):
         message = QLabel("IsoVal:")
         self.isoline = QLineEdit()
         isoval = QDoubleValidator()
-        isoval.setRange(0.0000001, 2.) # FIXME this shit
+        isoval.setRange(0.0000001, 2.)  # TODO: Make range configurable
         isoval.setLocale(QLocale('English'))
         self.isoline.setValidator(isoval)
         self.isoline.setText(f"{self._default['isoval']['iso']:.6f}")
@@ -370,6 +400,12 @@ class TCDvis(QMainWindow):
 
     def _cleanactors(self):
         """Removes all actors from the renderer"""
+        # Stop any running animation first
+        if self._show_particles:
+            self.stop_animation()
+        # Reset animation flag
+        self._default["vfield"]["animate_particles"] = False
+        
         self.ren.RemoveAllViewProps()
 
     def _updatereder(self):
@@ -529,85 +565,112 @@ class TCDvis(QMainWindow):
         self._menus['vtcddtm']['frags'].setEnabled(False)
 
     def _fieldstp(self):
-        if self._default["vfield"]["mspeed"] is None:
-            self._default["vfield"]["mspeed"] = self._fchk.get_tcd(self._activest)._maxnorm/1e4
-        fieldprm = StreamLineSetupDialog(vfmax=self._default["vfield"]["vfmax"],
-                                         vfmin=self._default["vfield"]["vfmin"],
-                                         mspeed=self._default["vfield"]["mspeed"],
-                                         maxval=self._fchk.get_tcd(self._activest)._maxnorm,
-                                         nseeds=self._default["vfield"]["npoints"],
-                                         scale=self._default["vfield"]["scalellipse"],
-                                         direction=self._default["vfield"]["showdir"],
-                                         showellipse=self._default["vfield"]["showell"],
-                                         showbar=self._default["vfield"]["showbar"],
-                                         animate_particles=self._default["vfield"]["animate_particles"],
-                                         num_particles=self._default["vfield"]["num_particles"],)
-        fieldprm.exec()
-        # Update the default values
-        self._default["vfield"]["vfmax"] = fieldprm._vfmax
-        self._default["vfield"]["vfmin"] = fieldprm._vfmin
-        self._default["vfield"]["mspeed"] = fieldprm._mspeed
-        if fieldprm._recalseeds:
-            self._fchk.sample_ellipse_space(npts=fieldprm._nseeds, scale=fieldprm._scale)
-        self._default["vfield"]["scalellipse"] = fieldprm._scale
-        self._default["vfield"]["npoints"] = fieldprm._nseeds
-        self._default["vfield"]["showdir"] = fieldprm._direction
-        self._default["vfield"]["showell"] = fieldprm._showellipse
-        self._default["vfield"]["showbar"] = fieldprm._showbar
-        self._default["vfield"]["animate_particles"] = fieldprm._animate_particles
-        self._default["vfield"]["num_particles"] = fieldprm._num_particles
-        # print(self._default["vfield"])
-        if 'tcd' in self._actors:
-            if fieldprm._redrawstream:
-            # self.ren.RemoveActor(self._actors['tcd'].actor)
-                self.showtcd()
-            else:
-                # Handle animation changes
-                if self._default["vfield"]["animate_particles"] and not self._show_particles:
-                    # Start animation
-                    if hasattr(self._actors['tcd'], 'streamline_data'):
-                        streamline_polydata = self._actors['tcd'].streamline_data
-                    else:
-                        streamline_polydata = self._actors['tcd'].actor.GetMapper().GetInput()
+        current_prop = self.prop.currentText().lower()
+        
+        if current_prop == "streamlines":
+            # Handle streamlines setup dialog
+            if self._default["vfield"]["mspeed"] is None:
+                self._default["vfield"]["mspeed"] = self._fchk.get_tcd(self._activest)._maxnorm/1e4
+            fieldprm = StreamLineSetupDialog(vfmax=self._default["vfield"]["vfmax"],
+                                             vfmin=self._default["vfield"]["vfmin"],
+                                             mspeed=self._default["vfield"]["mspeed"],
+                                             maxval=self._fchk.get_tcd(self._activest)._maxnorm,
+                                             nseeds=self._default["vfield"]["npoints"],
+                                             scale=self._default["vfield"]["scalellipse"],
+                                             direction=self._default["vfield"]["showdir"],
+                                             showellipse=self._default["vfield"]["showell"],
+                                             showbar=self._default["vfield"]["showbar"],
+                                             animate_particles=self._default["vfield"]["animate_particles"],
+                                             num_particles=self._default["vfield"]["num_particles"],)
+            fieldprm.exec()
+            # Update the default values
+            self._default["vfield"]["vfmax"] = fieldprm._vfmax
+            self._default["vfield"]["vfmin"] = fieldprm._vfmin
+            self._default["vfield"]["mspeed"] = fieldprm._mspeed
+            
+            if fieldprm._recalseeds:
+                self._fchk.sample_ellipse_space(npts=fieldprm._nseeds, scale=fieldprm._scale)
+            self._default["vfield"]["scalellipse"] = fieldprm._scale
+            self._default["vfield"]["npoints"] = fieldprm._nseeds
+            self._default["vfield"]["showdir"] = fieldprm._direction
+            self._default["vfield"]["showell"] = fieldprm._showellipse
+            self._default["vfield"]["showbar"] = fieldprm._showbar
+            self._default["vfield"]["animate_particles"] = fieldprm._animate_particles
+            self._default["vfield"]["num_particles"] = fieldprm._num_particles
+            
+            # Handle streamline-specific actors
+            if 'tcd' in self._actors:
+                if fieldprm._redrawstream:
+                    self.showtcd()
+                else:
+                    # Handle animation changes
+                    if self._default["vfield"]["animate_particles"] and not self._show_particles:
+                        # Start animation
+                        if hasattr(self._actors['tcd'], 'streamline_data'):
+                            streamline_polydata = self._actors['tcd'].streamline_data
+                        else:
+                            streamline_polydata = self._actors['tcd'].actor.GetMapper().GetInput()
+                        
+                        self._particle_animator = cubetk.create_streamline_particles(
+                            self.ren, streamline_polydata, num_particles=self._default["vfield"]["num_particles"])
+                        self.start_animation()
+                    elif not self._default["vfield"]["animate_particles"] and self._show_particles:
+                        # Stop animation
+                        self.stop_animation()
                     
-                    self._particle_animator = cubetk.create_streamline_particles(
-                        self.ren, streamline_polydata, num_particles=self._default["vfield"]["num_particles"])
-                    self.start_animation()
-                elif not self._default["vfield"]["animate_particles"] and self._show_particles:
-                    # Stop animation
-                    self.stop_animation()
-                
-                if fieldprm._showbar and 'tcdbar' not in self._actors:
-                    self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
-                    self.ren.AddActor2D(self._actors['tcdbar'].actor)
-                elif 'tcdbar' in self._actors:
-                    self.ren.RemoveActor(self._actors['tcdbar'].actor)
-                    del self._actors['tcdbar']
-                if fieldprm._direction and 'tcddir' not in self._actors:
-                    tmp_cube = copy.deepcopy(self._fchk.get_tcd(self._activest))
-                    self._actors['tcddir'] = cubetk.draw_cones_nogrid(tmp_cube, self._fchk.samplepoints)
-                    self.ren.AddActor(self._actors['tcddir'].actor)
-                elif 'tcddir' in self._actors:
-                    self.ren.RemoveActor(self._actors['tcddir'].actor)
-                    del self._actors['tcddir']
+                    if fieldprm._showbar and 'tcdbar' not in self._actors:
+                        self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
+                        self.ren.AddActor2D(self._actors['tcdbar'].actor)
+                    elif 'tcdbar' in self._actors:
+                        self.ren.RemoveActor(self._actors['tcdbar'].actor)
+                        del self._actors['tcdbar']
+                    if fieldprm._direction and 'tcddir' not in self._actors:
+                        tmp_cube = copy.deepcopy(self._fchk.get_tcd(self._activest))
+                        self._actors['tcddir'] = cubetk.draw_cones_nogrid(tmp_cube, self._fchk.samplepoints)
+                        self.ren.AddActor(self._actors['tcddir'].actor)
+                    elif 'tcddir' in self._actors:
+                        self.ren.RemoveActor(self._actors['tcddir'].actor)
+                        del self._actors['tcddir']
 
-        if fieldprm._showellipse:
-            if self._fchk.samplepoints is None:
-                self._fchk.sample_ellipse_space(self._default["vfield"]["npoints"], scale=self._default["vfield"]["scalellipse"])
-            self._actors['ellipse'] = cubetk.draw_ellipsoid(self._fchk.samplepoints)
-            self.ren.AddActor(self._actors['ellipse'].actor)
-        elif 'ellipse' in self._actors:
-            self.ren.RemoveActor(self._actors['ellipse'].actor)
-            del self._actors['ellipse']
+            if fieldprm._showellipse:
+                if self._fchk.samplepoints is None:
+                    self._fchk.sample_ellipse_space(self._default["vfield"]["npoints"], scale=self._default["vfield"]["scalellipse"])
+                self._actors['ellipse'] = cubetk.draw_ellipsoid(self._fchk.samplepoints)
+                self.ren.AddActor(self._actors['ellipse'].actor)
+            elif 'ellipse' in self._actors:
+                self.ren.RemoveActor(self._actors['ellipse'].actor)
+                del self._actors['ellipse']
+                
+        elif current_prop == "quiver":
+            # Handle quiver setup dialog
+            quiverprm = QuiverSetupDialog(scale=self._default["quiver"]["scale"],
+                                         subsamp=self._default["quiver"]["subsample"])
+            quiverprm.exec()
+            # Update the default values
+            self._default["quiver"]["scale"] = quiverprm._scale
+            self._default["quiver"]["subsample"] = quiverprm._subsamp
+            
+            # Redraw quiver if it exists
+            if 'tcd' in self._actors:
+                self.showtcd()
         
         self._updatereder()
 
     def _enablefieldsetup(self):
-        if self.prop.currentText().lower() == "streamlines":
+        # Stop any running animation when changing property type
+        if self._show_particles:
+            self.stop_animation()
+        
+        current_prop = self.prop.currentText().lower()
+        if current_prop in ["streamlines", "quiver"]:
             if self._activest in self._fchk.avail_tcd():
                 self._fieldsetup.setEnabled(True)
         else:
             self._fieldsetup.setEnabled(False)
+            # Reset animation flag for non-streamline properties
+            if current_prop != "streamlines":
+                self._default["vfield"]["animate_particles"] = False
+            
         if 'tcd' in self._actors:
             self.ren.RemoveActor(self._actors['tcd'].actor)
             self.showtcd()
@@ -738,6 +801,12 @@ class TCDvis(QMainWindow):
 
     def _setstate(self):
         self._activest = int(self.stline.text()) - 1
+        
+        # Stop any running particle animation and reset animation flag
+        if self._show_particles:
+            self.stop_animation()
+        self._default["vfield"]["animate_particles"] = False
+        
         # check and enable/disable vfield setup button
         self._enablefieldsetup()
         if 'tcd' in self._actors:
@@ -916,7 +985,9 @@ class TCDvis(QMainWindow):
             mask_index = filtervecatom(tmp_cube, 0.3)
             tmp_cube.cube[:, mask_index] = 0
             tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
-            self._actors['tcd'] = cubetk.quiv3d(tmp_cube, scale=100)
+            self._actors['tcd'] = cubetk.quiv3d(tmp_cube, 
+                                               scale=self._default["quiver"]["scale"],
+                                               subsample_factor=self._default["quiver"]["subsample"])
         elif prop_cur == "moe":
             if self._moltype == 'ele':
                 vec = tmp_cube.integrate() / self._fchk.get_exeng(self._activest)
@@ -1008,10 +1079,27 @@ class TCDvis(QMainWindow):
                     self.ren.RemoveActor(self._actors[f"aimiso{i:d}"].actor)
         self._updatereder()
 
-if __name__ == "__main__":
+
+def main():
+    """Main entry point for the TCD visualization application.
+    
+    Creates a QApplication instance, initializes the TCDvis main window,
+    and starts the event loop. This function is intended for use when
+    running the script directly from the command line.
+    
+    For library usage, create a TCDvis instance directly instead:
+        app = QApplication(sys.argv)
+        window = TCDvis(moldata=your_data)
+        window.show()
+        app.exec()
+    """
     app = QApplication(sys.argv)
     mainWin = TCDvis()
-    # mainWin.show()
+    mainWin.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
 
 
