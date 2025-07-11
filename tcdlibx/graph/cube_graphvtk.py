@@ -327,15 +327,19 @@ def draw_nm3d(crd, evec, ian,
         _type_: _description_
     """
 
+    # change the sign to be opposed to the TCD (must be done before weighting)
+    if cngsign:
+        evec = evec * -1
+    
     # weighted by the charge
     if chgwght:
         levec = evec * np.array(ian)[:, np.newaxis]
+    else:
+        levec = evec
+    
     norms = np.sqrt(np.einsum('ij,ij->i', levec, levec)).max()
     # normalized
     norm_evec = levec / norms
-    # change the sign to be opposed to the TCD
-    if cngsign:
-        evec *= -1
     natm = int(crd.shape[0])
     # PolyData
     # points = vtk.vtkPoints()

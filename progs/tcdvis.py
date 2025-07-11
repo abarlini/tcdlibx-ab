@@ -830,6 +830,10 @@ class TCDvis(QMainWindow):
                 self._menus['vtcd']['dmt'].setEnabled(False)
         if 'mfpdtm' in self._actors:
             self.showdmt()
+        
+        # Refresh NM visualization if it's currently displayed
+        if self._menus['mol']['nm']['disp'].isChecked():
+            self.shownm()
 
     def showdmt(self):
         # Controllare quelli checked e mostrarli
