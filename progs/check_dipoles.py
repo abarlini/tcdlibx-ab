@@ -66,7 +66,8 @@ def main():
     print(f"Fchk file: {args.fchk}")
     print(f"Cube file: {args.cub}")
     print(f"State: {args.state}")
-    fchk_dip = fchk.get_dtm(state, cgs=False)
+    # check only the electronic component
+    fchk_dip = fchk.get_dtm(state, tps='ele', cgs=False)
     cub_dip = fchk.get_tcd_dtm(state, cgs=False)
     print(f"fchk EDTM: {fchk_dip[0][0]:10.5f}{fchk_dip[0][1]:10.5f}{fchk_dip[0][2]:10.5f}")
     print(f"cube EDTM: {cub_dip[0][0]:10.5f}{cub_dip[0][1]:10.5f}{cub_dip[0][2]:10.5f}")
