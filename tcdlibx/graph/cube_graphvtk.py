@@ -718,16 +718,18 @@ class StreamlineParticleAnimator:
     Handles animated particles along streamlines in VTK.
     """
     
-    def __init__(self, renderer: vtk.vtkRenderer):
+    def __init__(self, renderer: vtk.vtkRenderer, particle_type: str = "sphere"):
         """
         Initialize the particle animator.
         
         Args:
             renderer: VTK renderer to add particles to
+            particle_type: Type of particle to use ("sphere" or "cone")
         """
         self.renderer = renderer
         self.particle_actors = []
         self.is_animating = False
+        self.particle_type = particle_type
         
     def create_particles(self, streamline_polydata: vtk.vtkPolyData, 
                         num_particles: int = 5) -> list[dict]:
@@ -754,7 +756,7 @@ class StreamlineParticleAnimator:
             if len(line_points) < 2:
                 continue
             
-            # Create glowing sphere particle
+            # Create particle actor based on type
             particle_actor = self._create_particle_actor()
             
             # Store particle data
@@ -762,12 +764,19 @@ class StreamlineParticleAnimator:
                 'actor': particle_actor,
                 'points': line_points,
                 'position': 0.0,
-                'speed': 0.01 + i * 0.005,  # Different speeds for variety
-                'active': True
+                'speed': 0.003 + i * 0.001,  # Slower speeds for better visibility
+                'active': True,
+                'transform': vtk.vtkTransform() if self.particle_type == "cone" else None
             }
             
-            # Set initial position at the start of the streamline
+            # Set initial position and orientation
             if len(line_points) > 0:
+                # For cones, set orientation first, then position
+                if self.particle_type == "cone" and len(line_points) > 1:
+                    direction = self._calculate_direction(line_points[0], line_points[1])
+                    self._orient_cone(particle_actor, direction, particle_data['transform'])
+                
+                # Set position after orientation for cones
                 particle_actor.SetPosition(line_points[0])
             
             particles.append(particle_data)
@@ -804,6 +813,18 @@ class StreamlineParticleAnimator:
     
     def _create_particle_actor(self) -> vtk.vtkActor:
         """
+        Create a particle actor based on the particle type.
+        
+        Returns:
+            VTK actor for the particle
+        """
+        if self.particle_type == "cone":
+            return self._create_cone_particle()
+        else:
+            return self._create_sphere_particle()
+    
+    def _create_sphere_particle(self) -> vtk.vtkActor:
+        """
         Create a glowing sphere actor for a particle.
         
         Returns:
@@ -830,6 +851,93 @@ class StreamlineParticleAnimator:
         
         return actor
     
+    def _create_cone_particle(self) -> vtk.vtkActor:
+        """
+        Create a cone actor for a particle.
+        
+        Returns:
+            VTK actor for the particle
+        """
+        # Create cone
+        cone = vtk.vtkConeSource()
+        cone.SetRadius(0.06)  # Increased radius for better visibility
+        cone.SetHeight(0.12)  # Increased height for better visibility
+        cone.SetResolution(12)
+        cone.SetDirection(1, 0, 0)  # Default direction along X-axis
+        cone.SetCenter(0, 0, 0)  # Center the cone at origin
+        
+        # Create mapper
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(cone.GetOutputPort())
+        
+        # Create actor with glowing appearance
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetColor(0, 0.8, 1)  # Bright cyan for cones
+        actor.GetProperty().SetSpecular(0.9)
+        actor.GetProperty().SetSpecularPower(100)
+        actor.GetProperty().SetAmbient(0.7)  # Higher ambient light for glow effect
+        actor.GetProperty().SetDiffuse(0.9)  # Higher diffuse for brightness
+        
+        # Store reference to cone source for later direction updates
+        actor.cone_source = cone
+        
+        return actor
+    
+    def _calculate_direction(self, p1: tuple, p2: tuple) -> tuple:
+        """
+        Calculate the direction vector from p1 to p2.
+        
+        Args:
+            p1: First point (x, y, z)
+            p2: Second point (x, y, z)
+            
+        Returns:
+            Normalized direction vector
+        """
+        import math
+        
+        # Calculate direction vector
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        dz = p2[2] - p1[2]
+        
+        # Normalize
+        length = math.sqrt(dx*dx + dy*dy + dz*dz)
+        if length > 0:
+            return (dx/length, dy/length, dz/length)
+        else:
+            return (1, 0, 0)  # Default direction
+    
+    def _orient_cone(self, actor: vtk.vtkActor, direction: tuple, transform: vtk.vtkTransform):
+        """
+        Orient the cone to point in the given direction.
+        
+        Args:
+            actor: VTK actor to orient
+            direction: Direction vector (x, y, z)
+            transform: VTK transform object to store the transformation
+        """
+        import math
+        
+        # Normalize direction vector
+        dx, dy, dz = direction
+        length = math.sqrt(dx*dx + dy*dy + dz*dz)
+        if length > 0:
+            dx, dy, dz = dx/length, dy/length, dz/length
+        else:
+            dx, dy, dz = 1, 0, 0  # Default direction
+        
+        # Get the cone source from the stored reference
+        if hasattr(actor, 'cone_source'):
+            cone_source = actor.cone_source
+            # Set the cone direction directly in the source
+            cone_source.SetDirection(dx, dy, dz)
+            cone_source.Update()
+        
+        # Don't apply any transform to the actor - let it use world coordinates directly
+        actor.SetUserTransform(None)
+    
     def update_particles(self) -> None:
         """
         Update particle positions along their streamlines.
@@ -852,7 +960,46 @@ class StreamlineParticleAnimator:
             
             # Interpolate position along streamline
             interpolated_pos = self._interpolate_position(points, particle['position'])
+            
+            # For cones, update orientation first, then position
+            if self.particle_type == "cone" and particle['transform'] is not None:
+                direction = self._get_direction_at_position(points, particle['position'])
+                self._orient_cone(particle['actor'], direction, particle['transform'])
+            
+            # Set position after orientation for cones
             particle['actor'].SetPosition(interpolated_pos)
+    
+    def _get_direction_at_position(self, points: list, position: float) -> tuple:
+        """
+        Get the direction vector at a specific position along the streamline.
+        
+        Args:
+            points: List of 3D points defining the streamline
+            position: Normalized position along streamline (0-1)
+            
+        Returns:
+            Direction vector at the given position
+        """
+        total_segments = len(points) - 1
+        segment_pos = position * total_segments
+        segment_idx = int(segment_pos)
+        
+        if segment_idx >= total_segments:
+            segment_idx = total_segments - 1
+        
+        # Get direction from current segment
+        if segment_idx + 1 < len(points):
+            p1 = points[segment_idx]
+            p2 = points[segment_idx + 1]
+            return self._calculate_direction(p1, p2)
+        else:
+            # Use previous segment direction
+            if segment_idx > 0:
+                p1 = points[segment_idx - 1]
+                p2 = points[segment_idx]
+                return self._calculate_direction(p1, p2)
+            else:
+                return (1, 0, 0)  # Default direction
     
     def _interpolate_position(self, points: list, position: float) -> list:
         """
@@ -913,7 +1060,7 @@ class StreamlineParticleAnimator:
             speed_multiplier: Multiplier for particle speeds
         """
         for i, particle in enumerate(self.particle_actors):
-            base_speed = 0.01 + i * 0.005
+            base_speed = 0.003 + i * 0.001
             particle['speed'] = base_speed * speed_multiplier
     
     def set_particle_visibility(self, visible: bool) -> None:
@@ -925,24 +1072,77 @@ class StreamlineParticleAnimator:
         """
         for particle in self.particle_actors:
             particle['actor'].SetVisibility(visible)
+    
+    def update_particle_type(self, new_particle_type: str, streamline_polydata: vtk.vtkPolyData, num_particles: int = None) -> None:
+        """
+        Update the particle type for existing animation.
+        
+        Args:
+            new_particle_type: New particle type ("sphere" or "cone")
+            streamline_polydata: VTK polydata containing streamlines
+            num_particles: New number of particles (optional, keeps current if None)
+        """
+        if new_particle_type == self.particle_type and (num_particles is None or num_particles == len(self.particle_actors)):
+            return  # No change needed
+            
+        # Store animation state
+        was_animating = self.is_animating
+        
+        # Stop current animation and remove particles
+        self.stop_animation()
+        
+        # Update particle type
+        self.particle_type = new_particle_type
+        
+        # Create new particles with new type
+        if num_particles is None:
+            num_particles = len(self.particle_actors) if self.particle_actors else 5
+        
+        self.create_particles(streamline_polydata, num_particles)
+        
+        # Restart animation if it was running
+        if was_animating:
+            self.start_animation()
+    
+    def get_particle_count(self) -> int:
+        """
+        Get the current number of particles.
+        
+        Returns:
+            Number of active particles
+        """
+        return len(self.particle_actors)
+    
+    def force_render_update(self) -> None:
+        """
+        Force the renderer to update the display.
+        """
+        if hasattr(self, 'ren') and self.ren is not None:
+            self.ren.GetRenderWindow().Render()
 
 
-def create_streamline_particles(renderer: vtk.vtkRenderer,
-                               streamline_polydata: vtk.vtkPolyData,
-                               num_particles: int = 5) -> StreamlineParticleAnimator:
+def create_streamline_particles(renderer: vtk.vtkRenderer, 
+                               polydata: vtk.vtkPolyData,
+                               num_particles: int = 10,
+                               particle_type: str = "sphere") -> StreamlineParticleAnimator:
     """
-    Create and return a streamline particle animator.
+    Factory function to create a StreamlineParticleAnimator instance.
     
     Args:
         renderer: VTK renderer to add particles to
-        streamline_polydata: VTK polydata containing streamlines
-        num_particles: Maximum number of particles to create
+        polydata: VTK polydata containing streamline data
+        num_particles: Number of particles to create
+        particle_type: Type of particles ("sphere" or "cone")
         
     Returns:
-        StreamlineParticleAnimator instance
+        StreamlineParticleAnimator instance with particles created
     """
-    animator = StreamlineParticleAnimator(renderer)
-    animator.create_particles(streamline_polydata, num_particles)
+    animator = StreamlineParticleAnimator(renderer, particle_type)
+    
+    # Only create particles if polydata has lines/points
+    if polydata.GetNumberOfPoints() > 0 and polydata.GetNumberOfCells() > 0:
+        animator.create_particles(polydata, num_particles)
+    
     return animator
 
 

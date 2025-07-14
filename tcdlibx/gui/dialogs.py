@@ -3,7 +3,7 @@ import typing as tp
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout
 from PySide6.QtCore import QRegularExpression, QLocale
 from PySide6.QtGui import QRegularExpressionValidator, QIntValidator, QDoubleValidator
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QCheckBox
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QCheckBox, QComboBox
 from PySide6.QtWidgets import QLineEdit, QFileDialog, QGridLayout, QPushButton
 from tcdlibx.utils.var_tools import fuzzy_equal
 
@@ -412,6 +412,7 @@ class StreamLineSetupDialog(QDialog):
                  showbar: bool = False,
                  animate_particles: bool = False,
                  num_particles: int = 15,
+                 particle_type: str = "sphere",
                  parent: tp.Optional[tp.Union[QDialog, None]] = None,
                  ) -> None:
         """ initialize the dialog. Requires a dictionary with the parameters,
@@ -433,6 +434,7 @@ class StreamLineSetupDialog(QDialog):
         self._showbar = showbar
         self._animate_particles = animate_particles
         self._num_particles = num_particles
+        self._particle_type = particle_type
         self._recalseeds = False
         self._redrawstream = False
         # print(f"vfmax:{self._vfmax} vfmin:{self._vfmin} mspeed:{self._mspeed} nseeds:{self._nseeds} scale:{self._scale}")
@@ -501,6 +503,18 @@ class StreamLineSetupDialog(QDialog):
         grid.addItem(self._particleline._hlay, 6, 1)  # Align with animation checkbox
         # Set initial state of particle count field based on animation checkbox
         self._particleline._line.setEnabled(animate_particles)
+        
+        # Add particle type selection
+        particle_type_label = QLabel("Particle type:")
+        self._particle_type_combo = QComboBox()
+        self._particle_type_combo.addItems(["sphere", "cone"])
+        self._particle_type_combo.setCurrentText(particle_type)
+        self._particle_type_combo.setEnabled(animate_particles)
+        hlay_particle_type = QHBoxLayout()
+        hlay_particle_type.addWidget(particle_type_label)
+        hlay_particle_type.addWidget(self._particle_type_combo)
+        grid.addItem(hlay_particle_type, 7, 1)
+        
         self._genseeds = QPushButton('Resample the ellissoide', self)
         self._genseeds.clicked.connect(self._setresample)
         hlay_tmp = QHBoxLayout()
@@ -540,6 +554,7 @@ class StreamLineSetupDialog(QDialog):
         self._num_particles = self._particleline._getvalue()
         if self._particleline.edit:
             self._redrawstream = True
+        self._particle_type = self._particle_type_combo.currentText()
         # print(f"vfmax:{self._vfmax} vfmin:{self._vfmin} mspeed:{self._mspeed} nseeds:{self._nseeds} scale:{self._scale}")
 
     def _setresample(self):
@@ -562,4 +577,6 @@ class StreamLineSetupDialog(QDialog):
         self._animate_particles = self._animate.isChecked()
         # Enable/disable particle count field based on animation checkbox
         self._particleline._line.setEnabled(self._animate_particles)
+        # Enable/disable particle type combo box based on animation checkbox
+        self._particle_type_combo.setEnabled(self._animate_particles)
 

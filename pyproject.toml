@@ -32,7 +32,7 @@ classifiers = [
 
 [project.optional-dependencies]
 gui = ['PySide6', 'vtk']
-clustering = []  # CaffeineClustering must be built separately - see docs
+
 
 [project.scripts]
 calc_vtcd = "progs.calc_vtcd:main"

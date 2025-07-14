@@ -1232,7 +1232,8 @@ def print_vec_incube(fname, vect1, vect2):
     print_cube(dcube, 'ELC+MAG', '{}'.format(fname))
 
 
-def cube_parser(cubfile: str) -> CubeData:
+def cube_parser(cubfile: str,
+                elemenents: bool = True) -> CubeData:
     """
     Read and extract data from a cube
     """
@@ -1287,6 +1288,9 @@ def cube_parser(cubfile: str) -> CubeData:
     if nval > 1:
         vec_num.resize(int(vec_num.shape[0] / nval), nval)
         vec_num = vec_num.transpose()
+    if nval == 3 and elemenents:
+        # Correction between old behavior and elements
+        vec_num /= np.sqrt(2)
     data_tmp.cube = vec_num
 
     return data_tmp

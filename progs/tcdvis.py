@@ -96,7 +96,8 @@ class TCDvis(QMainWindow):
                                     'conescale': .1,
                                     'showbar': False,
                                     'animate_particles': False,
-                                    'num_particles': 15},
+                                    'num_particles': 15,
+                                    'particle_type': 'sphere'},
                          'quiver': {'scale': 100,
                                    'subsample': 5},}
 
@@ -423,7 +424,7 @@ class TCDvis(QMainWindow):
             self._animation_timer = QTimer()
             self._animation_timer.timeout.connect(self.animate_particles)
         
-        self._animation_timer.start(50)  # 50ms = 20 FPS
+        self._animation_timer.start(100)  # 100ms = 10 FPS for smoother animation
         self._show_particles = True
         
         if self._particle_animator:
@@ -581,7 +582,8 @@ class TCDvis(QMainWindow):
                                              showellipse=self._default["vfield"]["showell"],
                                              showbar=self._default["vfield"]["showbar"],
                                              animate_particles=self._default["vfield"]["animate_particles"],
-                                             num_particles=self._default["vfield"]["num_particles"],)
+                                             num_particles=self._default["vfield"]["num_particles"],
+                                             particle_type=self._default["vfield"]["particle_type"],)
             fieldprm.exec()
             # Update the default values
             self._default["vfield"]["vfmax"] = fieldprm._vfmax
@@ -597,6 +599,7 @@ class TCDvis(QMainWindow):
             self._default["vfield"]["showbar"] = fieldprm._showbar
             self._default["vfield"]["animate_particles"] = fieldprm._animate_particles
             self._default["vfield"]["num_particles"] = fieldprm._num_particles
+            self._default["vfield"]["particle_type"] = fieldprm._particle_type
             
             # Handle streamline-specific actors
             if 'tcd' in self._actors:
@@ -612,11 +615,31 @@ class TCDvis(QMainWindow):
                             streamline_polydata = self._actors['tcd'].actor.GetMapper().GetInput()
                         
                         self._particle_animator = cubetk.create_streamline_particles(
-                            self.ren, streamline_polydata, num_particles=self._default["vfield"]["num_particles"])
+                            self.ren, streamline_polydata, 
+                            num_particles=self._default["vfield"]["num_particles"],
+                            particle_type=self._default["vfield"]["particle_type"])
                         self.start_animation()
                     elif not self._default["vfield"]["animate_particles"] and self._show_particles:
                         # Stop animation
                         self.stop_animation()
+                    elif self._default["vfield"]["animate_particles"] and self._show_particles:
+                        # Animation is already running, check if particle type or count changed
+                        if (hasattr(self, '_particle_animator') and 
+                            (self._particle_animator.particle_type != self._default["vfield"]["particle_type"] or
+                             self._particle_animator.get_particle_count() != self._default["vfield"]["num_particles"])):
+                            # Update particles with new type/count
+                            if hasattr(self._actors['tcd'], 'streamline_data'):
+                                streamline_polydata = self._actors['tcd'].streamline_data
+                            else:
+                                streamline_polydata = self._actors['tcd'].actor.GetMapper().GetInput()
+                            
+                            self._particle_animator.update_particle_type(
+                                self._default["vfield"]["particle_type"], 
+                                streamline_polydata, 
+                                self._default["vfield"]["num_particles"])
+                            
+                            # Force render update to show new particles immediately
+                            self.vtkWidget.GetRenderWindow().Render()
                     
                     if fieldprm._showbar and 'tcdbar' not in self._actors:
                         self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor, "Norm(J)")
@@ -982,7 +1005,9 @@ class TCDvis(QMainWindow):
                     streamline_polydata = self._actors['tcd'].actor.GetMapper().GetInput()
                 
                 self._particle_animator = cubetk.create_streamline_particles(
-                    self.ren, streamline_polydata, num_particles=self._default["vfield"]["num_particles"])
+                    self.ren, streamline_polydata, 
+                    num_particles=self._default["vfield"]["num_particles"],
+                    particle_type=self._default["vfield"]["particle_type"])
                 self.start_animation()
             
         elif prop_cur == "quiver":
