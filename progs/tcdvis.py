@@ -833,7 +833,7 @@ class TCDvis(QMainWindow):
         # check and enable/disable vfield setup button
         self._enablefieldsetup()
         if 'tcd' in self._actors:
-            self.ren.RemoveActor(self._actors['tcd'].actor)
+            self.ren.RemoveActor(self._actors['tcd'].actor) 
         self.cleartcdmt()
         if self._activest in self._fchk.avail_tcd():
             self.stline.setStyleSheet("color: white;  background-color: black")
@@ -853,6 +853,10 @@ class TCDvis(QMainWindow):
                 self._menus['vtcd']['dmt'].setEnabled(False)
         if 'mfpdtm' in self._actors:
             self.showdmt()
+        
+        # Refresh TCD DTM visualization if it's currently displayed
+        if 'tcddtm' in self._actors:
+            self.showtcdmt()
         
         # Refresh NM visualization if it's currently displayed
         if self._menus['mol']['nm']['disp'].isChecked():
@@ -962,10 +966,10 @@ class TCDvis(QMainWindow):
         if 'tcd' in self._actors:
             self.ren.RemoveActor(self._actors['tcd'].actor)
             del self._actors['tcd']
-        if 'dtcdir' in self._actors:
+        if 'tcddir' in self._actors:
             self.ren.RemoveActor(self._actors['tcddir'].actor)
             del self._actors['tcddir']
-        if 'dtcbar' in self._actors:
+        if 'tcdbar' in self._actors:
             self.ren.RemoveActor(self._actors['tcdbar'].actor)
             del self._actors['tcdbar']
         
@@ -1071,6 +1075,13 @@ class TCDvis(QMainWindow):
             self.ren.AddActor2D(self._actors['tcdbar'].actor)
         if 'tcddir' in self._actors:
             self.ren.AddActor(self._actors['tcddir'].actor)
+        
+        # Refresh DTM vectors if they were previously displayed
+        if 'mfpdtm' in self._actors:
+            self.showdmt()
+        if 'tcddtm' in self._actors:
+            self.showtcdmt()
+        
         self._updatereder()
 
     def shownm(self):
