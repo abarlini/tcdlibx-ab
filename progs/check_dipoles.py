@@ -5,6 +5,7 @@ import numpy as np
 import os
 import argparse
 import typing as tp
+from estampes.data.physics import phys_fact
 from tcdlibx.calc.cube_manip import VecCubeData, VtcdData, CubeData, cube_parser
 from tcdlibx.graph.helpers import EleMolecule, VibMolecule
 from tcdlibx.io.estp_io import get_elemol, get_vibmol
@@ -69,6 +70,15 @@ def main():
     # check only the electronic component
     fchk_dip = fchk.get_dtm(state, tps='ele', cgs=False)
     cub_dip = fchk.get_tcd_dtm(state, cgs=False)
+    if moltype == 'ele':
+        fchk_dip_cgs = (ele_edip_cgs(fchk_dip[0]), ele_mdip_cgs(fchk_dip[1]))
+        cub_dip_cgs = (ele_edip_cgs(cub_dip[0]), ele_mdip_cgs(cub_dip[1]))
+    else:
+        # convert velocity edtm to length
+        cub_dip[0] = cub_dip[0] / (fchk._moldata['freq'][state] /phys_fact("fac2au"))
+        fchk_dip_cgs = (edip_cgs(fchk_dip[0], fchk._moldata['freq'][state]), mdip_cgs(fchk_dip[1], fchk._moldata['freq'][state]))
+        cub_dip_cgs = (edip_cgs(cub_dip[0], fchk._moldata['freq'][state]), mdip_cgs(cub_dip[1], fchk._moldata['freq'][state]))
+
     print(f"fchk EDTM: {fchk_dip[0][0]:10.5f}{fchk_dip[0][1]:10.5f}{fchk_dip[0][2]:10.5f}")
     print(f"cube EDTM: {cub_dip[0][0]:10.5f}{cub_dip[0][1]:10.5f}{cub_dip[0][2]:10.5f}")
     print(f"diff EDTM: {fchk_dip[0][0]-cub_dip[0][0]:10.5f}{fchk_dip[0][1]-cub_dip[0][1]:10.5f}{fchk_dip[0][2]-cub_dip[0][2]:10.5f}")
@@ -81,12 +91,6 @@ def main():
     print("{:10s}{:15.5f}{:15.5f}{:15.5f}".format("RS", np.dot(fchk_dip[0], fchk_dip[1]), np.dot(cub_dip[0], cub_dip[1]), np.dot(fchk_dip[0], fchk_dip[1])-np.dot(cub_dip[0], cub_dip[1])))
     print("Dipole strength and rotational strength in cgs:")
     print("{:10s}{:^15s}{:^15s}{:^15s}".format("","fchk","cube","difference"))
-    if moltype == 'ele':
-        fchk_dip_cgs = (ele_edip_cgs(fchk_dip[0]), ele_mdip_cgs(fchk_dip[1]))
-        cub_dip_cgs = (ele_edip_cgs(cub_dip[0]), ele_mdip_cgs(cub_dip[1]))
-    else:
-        fchk_dip_cgs = (edip_cgs(fchk_dip[0], fchk._moldata['freq'][state]), mdip_cgs(fchk_dip[1], fchk._moldata['freq'][state]))
-        cub_dip_cgs = (edip_cgs(cub_dip[0], fchk._moldata['freq'][state]), mdip_cgs(cub_dip[1], fchk._moldata['freq'][state]))
     print("{:10s}{:15.5E}{:15.5E}{:15.5E}".format("DS", np.dot(fchk_dip_cgs[0], fchk_dip_cgs[0]), np.dot(cub_dip_cgs[0], cub_dip_cgs[0]), np.dot(fchk_dip_cgs[0], fchk_dip_cgs[0])-np.dot(cub_dip_cgs[0], cub_dip_cgs[0])))
     print("{:10s}{:15.5E}{:15.5E}{:15.5E}".format("RS", np.dot(fchk_dip_cgs[0], fchk_dip_cgs[1]), np.dot(cub_dip_cgs[0], cub_dip_cgs[1]), np.dot(fchk_dip_cgs[0], fchk_dip_cgs[1])-np.dot(cub_dip_cgs[0], cub_dip_cgs[1])))
     
