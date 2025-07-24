@@ -1288,9 +1288,9 @@ def cube_parser(cubfile: str,
     if nval > 1:
         vec_num.resize(int(vec_num.shape[0] / nval), nval)
         vec_num = vec_num.transpose()
-    if nval == 3 and elemenents:
+    if nval == 3 and not elemenents:
         # Correction between old behavior and elements
-        vec_num /= np.sqrt(2)
+        vec_num *= np.sqrt(2)
     data_tmp.cube = vec_num
 
     return data_tmp

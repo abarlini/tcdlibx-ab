@@ -342,8 +342,8 @@ class EleMolecule(Molecule):
         if state > self._nstates -1  or state < 0:
             raise NoValidData("EleMolecule.get_vtcd_dtm", "State out of range")
         if tps == "tot":
-            res = (self._etcd[state].integrate() / self._moldata['exeng'][state] * np.sqrt(2), # to length
-                   self._etcd[state].rotorintegrate()/np.sqrt(2))
+            res = (self._etcd[state].integrate() / self._moldata['exeng'][state], # to length
+                   self._etcd[state].rotorintegrate()/2)
         elif tps == "frags":
             # print(self._frags)
             # print(self._aimdata)

@@ -20,15 +20,19 @@ VCD2DE = 1.0e-51*32.*np.pi**3*PHYSCNST.avogadro / (3000.*PHYSCNST.planck*PHYSCNS
 ds_fact = MWQ2q**2 * edip_conv**2*1.0e40/2.
 rs_fact = edip_conv*mdip_conv*1.0e44/PHYSCNST.slight
 
+
 def edip_cgs(vec, freq):
     return vec/np.sqrt(2*freq)*edip_conv*MWQ2q*1e20
+
 
 def mdip_cgs(vec, freq):
     return vec*mdip_conv/MWQ2q*np.sqrt(2*freq)/PHYSCNST.slight*1e24
 
+
 def ele_edip_cgs(vec):
     au2Cm = PHYSFACT.e2C*PHYSFACT.bohr2ang*1.0e-10
     return vec * au2Cm * 10 * PHYSCNST.slight
+
 
 def ele_mdip_cgs(vec):
     au2kg = 1.0e4*PHYSFACT.Eh2J / (PHYSCNST.slight*PHYSCNST.finestruct)**2
