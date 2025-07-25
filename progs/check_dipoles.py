@@ -28,11 +28,14 @@ def open_fchk(fname: str) -> tp.Union[EleMolecule, VibMolecule]:
     return fchk
 
 
-def open_cube(fname: str) -> CubeData:
+def open_cube(fname: str, legacy: bool) -> CubeData:
     """Open the cube file and return the cube object."""
     if not os.path.exists(fname):
         raise FileNotFoundError(f'File {fname} not found.')
-    cubdata = cube_parser(fname)
+    elements = True
+    if legacy:
+        elements = False
+    cubdata = cube_parser(fname, elements)
     return cubdata
 
 
@@ -42,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('fchk', type=str, help='fchk file')
     parser.add_argument('cub', type=str, help='cube file')
     parser.add_argument('--state', type=int, default=1, help='Electronic or vibrational state of the cube file')
+    parser.add_argument('--legacy', action="store_true", help='sqrt factor for old cube')
     return parser
 
 def main():
@@ -49,7 +53,7 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
     fchk = open_fchk(args.fchk)
-    cub = open_cube(args.cub)
+    cub = open_cube(args.cub, legacy=args.legacy)
     moltype = None
     if args.state > fchk.ntrans or args.state < 1:
         print(f"State {args.state} not valid. Choose a state between 1 and {fchk.ntrans}")
@@ -75,7 +79,9 @@ def main():
         cub_dip_cgs = (ele_edip_cgs(cub_dip[0]), ele_mdip_cgs(cub_dip[1]))
     else:
         # convert velocity edtm to length
-        cub_dip[0] = cub_dip[0] / (fchk._moldata['freq'][state] /phys_fact("fac2au"))
+        cub_dip = list(cub_dip)
+        print(cub_dip[0], fchk._moldata['freq'][state])
+        cub_dip[0] = cub_dip[0] / (fchk._moldata['freq'][state] /phys_fact("au2cm1"))
         fchk_dip_cgs = (edip_cgs(fchk_dip[0], fchk._moldata['freq'][state]), mdip_cgs(fchk_dip[1], fchk._moldata['freq'][state]))
         cub_dip_cgs = (edip_cgs(cub_dip[0], fchk._moldata['freq'][state]), mdip_cgs(cub_dip[1], fchk._moldata['freq'][state]))
 
