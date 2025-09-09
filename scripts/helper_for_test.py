@@ -40,10 +40,10 @@ def main():
     # check only the electronic component
     cub_int = cubedata.integrate()
     if isinstance(cubedata, VecCubeData):
-        print(f"cube int: {cub_int[0][0]:10.5f}{cub_int[0][1]:10.5f}{cub_int[0][2]:10.5f}")
+        print(f"cube int: {cub_int[0]:10.5f}{cub_int[1]:10.5f}{cub_int[2]:10.5f}")
         if args.rotor:
             cub_rot = cubedata.rotorintegrate()
-            print(f"cube rotor: {cub_rot[0][0]:10.5f}{cub_rot[0][1]:10.5f}{cub_rot[0][2]:10.5f}")
+            print(f"cube rotor: {cub_rot[0]:10.5f}{cub_rot[1]:10.5f}{cub_rot[2]:10.5f}")
     else:
         print(f"cube int: {cub_int:10.5f}")
 
