@@ -160,6 +160,14 @@ class VibMolecule(Molecule):
     def ntrans(self) -> int:
         return self._nvib
 
+    @property
+    def apt(self) -> np.ndarray:
+        return self._moldata['apt']
+    
+    @property
+    def aat(self) -> np.ndarray:
+        return self._moldata['aat']
+
     def _nuctens(self):
         nuc_tens = nuclear_tensors(np.array(self.atnum),
                                    self.crd)
@@ -263,6 +271,32 @@ class VibMolecule(Molecule):
             self._vtcd[tcd] = AimCubeData(self._vtcd[tcd], self._aimdata)
             if self._frags is not None:
                 self._vtcd[tcd].set_fragments(self._frags['indx'])
+
+    def remove_tcd(self, vib: int) -> bool:
+        """
+        Remove a specific TCD cube from memory to free resources.
+        
+        Args:
+            vib (int): Vibration index to remove
+            
+        Returns:
+            bool: True if cube was removed, False if not found
+        """
+        if vib in self._vtcd:
+            del self._vtcd[vib]
+            return True
+        return False
+
+    def remove_all_tcd(self) -> int:
+        """
+        Remove all stored TCD cubes from memory to free resources.
+        
+        Returns:
+            int: Number of cubes removed
+        """
+        count = len(self._vtcd)
+        self._vtcd.clear()
+        return count
 
 
 class EleMolecule(Molecule):
@@ -384,7 +418,34 @@ class EleMolecule(Molecule):
         for tcd in self.avail_tcd():
             self._etcd[tcd] = AimCubeData(self._etcd[tcd], self._aimdata)
             if self._frags is not None:
-                self._etcd[tcd].set_fragments(self._frags['indx'])       
+                self._etcd[tcd].set_fragments(self._frags['indx'])
+
+    def remove_tcd(self, state: int) -> bool:
+        """
+        Remove a specific TCD cube from memory to free resources.
+        
+        Args:
+            state (int): Electronic state index to remove
+            
+        Returns:
+            bool: True if cube was removed, False if not found
+        """
+        if state in self._etcd:
+            del self._etcd[state]
+            return True
+        return False
+
+    def remove_all_tcd(self) -> int:
+        """
+        Remove all stored TCD cubes from memory to free resources.
+        
+        Returns:
+            int: Number of cubes removed
+        """
+        count = len(self._etcd)
+        self._etcd.clear()
+        return count
+    
 
 class MyvtkActor():
     """Helper class to store vtk actor and filter and allow an easy access to them
@@ -405,3 +466,59 @@ class MyvtkActor():
     def GetCenter(self):
         """Get the center of the actor"""
         return self._actor.GetCenter()
+
+def fibonacci_spiral_samples_on_unit_sphere(nb_samples, mode=0):
+    """
+    Generate points on a unit sphere using Fibonacci spiral sampling.
+    Taken from:
+    https://github.com/matt77hias/fibpy/blob/master/src/sampling.py
+    
+    Args:
+        nb_samples (int): Number of sample points on the sphere
+        mode (int): Sampling mode (0 for deterministic, other for random shift)
+        
+    Returns:
+        np.ndarray: Array of shape (nb_samples, 3) with unit sphere coordinates
+    """
+    shift = 1.0 if mode == 0 else nb_samples * np.random.random()
+ 
+    ga = np.pi * (3.0 - np.sqrt(5.0))
+    offset = 2.0 / nb_samples
+    
+    ss = np.zeros((nb_samples, 3))
+    j = 0
+    for i in range(nb_samples):
+        phi = ga * ((i + shift) % nb_samples)
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
+        cos_theta = ((i + 0.5) * offset) - 1.0
+        sin_theta = np.sqrt(1.0 - cos_theta * cos_theta)
+        ss[j, :] = np.array([cos_phi * sin_theta, sin_phi * sin_theta, cos_theta])
+        j += 1
+    return ss
+
+DEFAULT_VIS_VALS = {'isoval': {'iso': 0.01},
+                         'vfield': {'vfmax': 1e2,
+                                    'vfmin': 1e5,
+                                    'mspeed': None,
+                                    'npoints': 100,
+                                    'scalellipse': 3.,
+                                    'showdir': False,
+                                    'showell': False,
+                                    'conescale': .1,
+                                    'showbar': False,
+                                    'animate_particles': False,
+                                    'num_particles': 15,
+                                    'particle_type': 'sphere'},
+                         'quiver': {'scale': 100,
+                                   'subsample': 5},
+                         'tensor': {'sphere_radius': 0.5,
+                                    'nb_sphere_samples': 50,
+                                    'nb_sphere_surface': 250,
+                                    'vector_scale': 1.0,
+                                    'surface_scale': 1.0,
+                                    'opacity': 0.8,
+                                    'color_scheme': 'weight_mag',
+                                    'surf_color_scheme': 'magnitude',
+                                    'atom_filter': None,
+                                    'show_spheres': False}}
