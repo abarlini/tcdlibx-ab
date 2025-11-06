@@ -96,6 +96,7 @@ def main():
             f.write(f"{mfp_dtm[1][0]:10.5f} {mfp_dtm[1][1]:10.5f} {mfp_dtm[1][2]:8.4f}")
             f.write(f"{tcd_tot[0][0]:10.5f} {tcd_tot[0][1]:10.5f} {tcd_tot[0][2]:8.4f}")
             f.write(f"{tcd_tot[1][0]:10.5f} {tcd_tot[1][1]:10.5f} {tcd_tot[1][2]:10.5f}\n")
+        fchk.remove_tcd(i-1)
 
 if __name__ == '__main__':
     try:
