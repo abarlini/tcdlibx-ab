@@ -64,11 +64,14 @@ def main():
     with open(fout, 'w') as f:
         f.write("DTM Analysis Results\n")
         f.write("=" * 131 + "\n")
-        f.write("N. {:^8s}").format("Freq.")
-        f.write("{:^30s}".format("MFP (electric)"))
-        f.write("{:^30s}".format("MFP (magnetic)"))
-        f.write("{:^30s}".format("TCD_tot (electric)"))
-        f.write("{:^30s}".format("TCD_tot (magnetic)")+"\n")
+        header = (
+            f"N. {'Freq.':^8s}"
+            f"{'MFP (electric)':^30s}"
+            f"{'MFP (magnetic)':^30s}"
+            f"{'TCD_tot (electric)':^30s}"
+            f"{'TCD_tot (magnetic)':^30s}\n"
+        )
+        f.write(header)
         f.write("-" * 131 + "\n")
     
     for i in range(1, fchk.ntrans + 1):
@@ -85,17 +88,20 @@ def main():
         mfp_dtm = fchk.get_dtm(i-1, tps='tot', cgs=False)
         tcd_dtm = fchk.get_tcd_dtm(i-1, cgs=False)
         # to length for vib
-        tcd_dtm[0] = tcd_dtm[0] / (fchk._moldata['freq'][i-1] /phys_fact("au2cm1"))
+        tcd_dtm[0] = tcd_dtm[0] / (fchk._moldata['freq'][i-1] / phys_fact("au2cm1"))
         tcd_tot = (nuc_cntr[0]+tcd_dtm[0], nuc_cntr[1]+tcd_dtm[1])
         
         # Print results for each state to output file
         with open(fout, 'a') as f:
-            f.write(f"{i:3d}: ")
-            f.write(f"{fchk._moldata['freq'][i-1]:8.2f} cm-1, ")
-            f.write(f"{mfp_dtm[0][0]:10.5f} {mfp_dtm[0][1]:10.5f} {mfp_dtm[0][2]:8.4f}")
-            f.write(f"{mfp_dtm[1][0]:10.5f} {mfp_dtm[1][1]:10.5f} {mfp_dtm[1][2]:8.4f}")
-            f.write(f"{tcd_tot[0][0]:10.5f} {tcd_tot[0][1]:10.5f} {tcd_tot[0][2]:8.4f}")
-            f.write(f"{tcd_tot[1][0]:10.5f} {tcd_tot[1][1]:10.5f} {tcd_tot[1][2]:10.5f}\n")
+            line = (
+                f"{i:3d}: "
+                f"{fchk._moldata['freq'][i-1]:8.2f} cm-1, "
+                f"{mfp_dtm[0][0]:10.5f} {mfp_dtm[0][1]:10.5f} {mfp_dtm[0][2]:8.4f}  "
+                f"{mfp_dtm[1][0]:10.5f} {mfp_dtm[1][1]:10.5f} {mfp_dtm[1][2]:8.4f}  "
+                f"{tcd_tot[0][0]:10.5f} {tcd_tot[0][1]:10.5f} {tcd_tot[0][2]:8.4f}  "
+                f"{tcd_tot[1][0]:10.5f} {tcd_tot[1][1]:10.5f} {tcd_tot[1][2]:10.5f}\n"
+            )
+            f.write(line)
         fchk.remove_tcd(i-1)
 
 if __name__ == '__main__':
