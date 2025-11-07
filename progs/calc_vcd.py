@@ -87,7 +87,7 @@ def main():
         nuc_cntr = fchk.get_dtm(i-1, tps='nuc', cgs=False)
         mfp_dtm = fchk.get_dtm(i-1, tps='tot', cgs=False)
         tcd_dtm = fchk.get_tcd_dtm(i-1, cgs=False)
-        # to length for vib
+        
         vib_length = fchk._moldata['freq'][i-1] / phys_fact("au2cm1")
         tcd_electric = tcd_dtm[0] / vib_length
         tcd_tot = (nuc_cntr[0] + tcd_electric, nuc_cntr[1] + tcd_dtm[1])
