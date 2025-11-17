@@ -350,6 +350,7 @@ class QuiverSetupDialog(QDialog):
     def __init__(self,
                  scale: float,
                  subsamp: int,
+                 showlegend: bool,
                  parent: tp.Optional[tp.Union[QDialog, None]] = None) -> None:
         """ initialize the dialog. Requires a dictionary with the parameters,
             the maximum norm value in the field and optionally a parent dialog
@@ -362,6 +363,7 @@ class QuiverSetupDialog(QDialog):
         super().__init__(parent)
         self._scale = scale
         self._subsamp = subsamp
+        self._showlegend = showlegend
         self.setWindowTitle("Quiver Setup Dialog")
         self.vlay = QVBoxLayout()
         grid = QGridLayout()
@@ -377,7 +379,11 @@ class QuiverSetupDialog(QDialog):
         grid.addWidget(message, 2, 0)
         grid.addLayout(self._subsampline._hlay, 3, 0)
 
-        QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel 
+        self._legend_checkbox = QCheckBox("Show legend (min/max)")
+        self._legend_checkbox.setChecked(showlegend)
+        self.vlay.addWidget(self._legend_checkbox)
+
+        QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel
 
         self.buttonBox = QDialogButtonBox(QBtn)
         self.buttonBox.accepted.connect(self.accept)
@@ -391,6 +397,7 @@ class QuiverSetupDialog(QDialog):
     def _setvals(self):
         self._scale = self._scalemol._getvalue()
         self._subsamp = self._subsampline._getvalue()
+        self._showlegend = self._legend_checkbox.isChecked()
 
 
 class StreamLineSetupDialog(QDialog):

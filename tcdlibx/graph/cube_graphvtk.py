@@ -280,7 +280,6 @@ def quiv3d(
 
     arrow = vtk.vtkArrowSource()
     glyphs = vtk.vtkGlyph3D()
-    glyphs.SetInputData(_grid)
     glyphs.SetSourceConnection(arrow.GetOutputPort())
     # the mapper
     glyph_mapper = vtk.vtkPolyDataMapper()
@@ -294,15 +293,41 @@ def quiv3d(
     # Scale factor
     glyphs.SetScaleFactor(scale)
     glyphs.SetColorModeToColorByScalar()
-    # color map
-    lut = vtk.vtkColorTransferFunction()
-    lut.AddRGBPoint(lower, 1, 0, 0)
-    lut.AddRGBPoint(upper, 0, 1, 0)
-    glyph_mapper.SetLookupTable(lut)
+
     # filtering
     threshold = vtk.vtkThresholdPoints()
     threshold.SetInputData(_grid)
     threshold.ThresholdBetween(lower, upper)
+    threshold.Update()
+
+    # Determine the range of the displayed vectors to keep the legend aligned
+    scalars = threshold.GetOutput().GetPointData().GetScalars() if threshold.GetOutput() else None
+    if scalars is not None and scalars.GetNumberOfTuples() > 0:
+        color_min, color_max = scalars.GetRange()
+    else:
+        fallback_scalars = _grid.GetPointData().GetScalars()
+        if fallback_scalars is not None and fallback_scalars.GetNumberOfTuples() > 0:
+            color_min, color_max = fallback_scalars.GetRange()
+        else:
+            color_min, color_max = lower, upper
+
+    if (not np.isfinite(color_min) or
+            not np.isfinite(color_max) or
+            color_min == color_max):
+        if upper > lower:
+            color_min, color_max = lower, upper
+        else:
+            color_min, color_max = lower, lower + 1e-9
+
+    # Create a red color scale (light to dark red)
+    lut = vtk.vtkColorTransferFunction()
+    mid_value = color_min + (color_max - color_min) / 2.0
+    lut.AddRGBPoint(color_min, 1.0, 0.9, 0.9)
+    lut.AddRGBPoint(mid_value, 0.9, 0.2, 0.2)
+    lut.AddRGBPoint(color_max, 0.5, 0.0, 0.0)
+    glyph_mapper.SetLookupTable(lut)
+    glyph_mapper.SetScalarRange(color_min, color_max)
+
     glyphs.SetInputConnection(threshold.GetOutputPort())
 
     return MyvtkActor(glyph_actor, glyphs)
