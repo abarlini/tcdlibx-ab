@@ -667,11 +667,13 @@ class TCDvis(QMainWindow):
         elif current_prop == "quiver":
             # Handle quiver setup dialog
             quiverprm = QuiverSetupDialog(scale=self._default["quiver"]["scale"],
-                                         subsamp=self._default["quiver"]["subsample"])
+                                         subsamp=self._default["quiver"]["subsample"],
+                                         showlegend=self._default["quiver"].get("showlegend", False))
             quiverprm.exec()
             # Update the default values
             self._default["quiver"]["scale"] = quiverprm._scale
             self._default["quiver"]["subsample"] = quiverprm._subsamp
+            self._default["quiver"]["showlegend"] = quiverprm._showlegend
             
             # Redraw quiver if it exists
             if 'tcd' in self._actors:
@@ -1018,9 +1020,13 @@ class TCDvis(QMainWindow):
             mask_index = filtervecatom(tmp_cube, 0.3)
             tmp_cube.cube[:, mask_index] = 0
             tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
-            self._actors['tcd'] = cubetk.quiv3d(tmp_cube, 
+            self._actors['tcd'] = cubetk.quiv3d(tmp_cube,
                                                scale=self._default["quiver"]["scale"],
                                                subsample_factor=self._default["quiver"]["subsample"])
+            if self._default["quiver"].get("showlegend", False):
+                self._actors['tcdbar'] = cubetk.draw_colorbar(self._actors['tcd'].actor,
+                                                              "Norm(J)",
+                                                              nlabs=2)
         elif prop_cur == "moe":
             if self._moltype == 'ele':
                 vec = tmp_cube.integrate() / self._fchk.get_exeng(self._activest)
