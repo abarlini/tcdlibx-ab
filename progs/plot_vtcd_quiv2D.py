@@ -87,6 +87,8 @@ def build_parser():
                       comma separated values: [xmin,xmax,ymix,ymax]')
     draw.add_argument('--symplot', action='store_true',
                       help='''Center the 2D plot at the Origin (0,0)''')
+    draw.add_argument('--plane', type=float,
+                      help='Coordinate of the slice along the projection axis')
     draw.add_argument('-t', '--type', choices=('quiver', 'stream',
                                                'animated_stream',
                                                'stream2'),
@@ -151,6 +153,10 @@ def main():
         ngrdstp = OPTS.grid
     else:
         ngrdstp = NSTEP_BOX
+
+    if OPTS.plane is not None and not OPTS.axis:
+        print('ERROR: --plane requires --axis to choose the projection')
+        sys.exit()
 
 
     SCF = [OPTS.scaleNuc, OPTS.scaleBond]
@@ -310,7 +316,8 @@ Coordinates (in Bohr)
                             # OPTS.axis, OPTS.scaleNM, to_bohr=True)
                               cubdat.ian, OPTS.axis, OPTS.scaleNM, to_bohr=True)
         if OPTS.type == 'quiver':
-            QUIV = cbplt.quiver_plt(ax0, cubdat, OPTS.axis, OPTS.vscale)
+            QUIV = cbplt.quiver_plt(ax0, cubdat, OPTS.axis, OPTS.vscale,
+                                    plane_val=OPTS.plane)
             fig0.savefig(os.path.join(ressubfolder, 'quiv2D.{}'.format(OPTS.figext)))
         elif OPTS.type == 'stream':
             STRM = cbplt.stream_plt(ax0, cubdat, OPTS.axis)
