@@ -9,18 +9,30 @@ import numpy as np
 
 # Import VTK with error handling
 from tcdlibx.utils.vtk_utils import vtk
+from vtk.util import numpy_support
 
 from tcdlibx.calc.cube_manip import CubeData, VecCubeData
 from tcdlibx.graph.helpers import MyvtkActor
 # from math import ceil
 
 def dots2vtkarray(dots: np.ndarray) -> vtk.vtkPolyData:
+    """Create a polydata object containing the given points.
+
+    The returned polydata contains both the points and a vertex cell array so it
+    can be safely used as a source dataset (e.g., for ``vtkStreamTracer``).
+    """
+
     points1 = vtk.vtkPoints()
+    vertices = vtk.vtkCellArray()
+
     for coords in dots:
-        points1.InsertNextPoint(coords)
+        pid = points1.InsertNextPoint(coords)
+        vertices.InsertNextCell(1)
+        vertices.InsertCellPoint(pid)
 
     pointPolyData1 = vtk.vtkPolyData()
     pointPolyData1.SetPoints(points1)
+    pointPolyData1.SetVerts(vertices)
     return pointPolyData1
 
 def create_vector_field_polydata(positions: np.ndarray, 
@@ -464,14 +476,16 @@ def draw_vectors(crd, vecs, tps, scale=1):
     return MyvtkActor(glyph_actor, glyphs)
 
 
-def fillstreamline(cubdata: CubeData,
-                   nseeds: tp.Optional[int] = 150,
-                   center: tp.Optional[list] = [0., 0., 0.],
-                   opacity: tp.Optional[float] = 0.3,
-                   clipping: tp.Optional[tuple] = (1e2, 1e5),
-                   minspeed: tp.Optional[tp.Union[float, None]] = None,
-                   seeds: tp.Optional[tp.Union[np.ndarray, None]] = None,
-                   scale_rad=1) -> MyvtkActor:
+def fillstreamline(
+    cubdata: CubeData,
+    nseeds: tp.Optional[int] = 150,
+    center: tp.Optional[tp.Sequence[float]] = None,
+    opacity: tp.Optional[float] = 0.3,
+    clipping: tp.Optional[tuple] = (1e2, 1e5),
+    minspeed: tp.Optional[tp.Union[float, None]] = None,
+    seeds: tp.Optional[tp.Union[np.ndarray, None]] = None,
+    scale_rad=1,
+) -> MyvtkActor:
     """_summary_
 
     Args:
@@ -496,17 +510,56 @@ def fillstreamline(cubdata: CubeData,
     # visualizing only a portion between the two bounds
     _bounds2 = (_bounds[1]/clipping[1],
                 _bounds[1]/clipping[0])
+    _grid_bounds = np.array(_grid.GetBounds()).reshape(3, 2)
+    _grid_center = _grid.GetCenter()
+    _grid_diag = np.linalg.norm(_grid_bounds[:, 1] - _grid_bounds[:, 0])
+    seed_count = max(nseeds or 0, 1)
+    if center is None:
+        center = _grid_center
     # defining the seed points
     if seeds is None:
-        _seeds = vtk.vtkPointSource()
-        _seeds.SetCenter(*center)
-        _seeds.SetNumberOfPoints(nseeds)
-        _seeds.SetRadius(5.0)
-        # possible different distributions, see at
-        # https://vtk.org/doc/nightly/html/classvtkPointSource.html#a2029a3636eef7a32db31a10c9a904f9c
-        # random distribution, seek how to get and save point positions
-        _seeds.Update()
-        _flag = True
+        seed_points = None
+        # Prefer sampling existing grid points weighted by the field magnitude
+        scalar_array = _grid.GetPointData().GetArray('scalar')
+        points_array = _grid.GetPoints()
+        if scalar_array is not None and points_array is not None:
+            scalars_np = np.abs(numpy_support.vtk_to_numpy(scalar_array))
+            coords_np = numpy_support.vtk_to_numpy(points_array.GetData())
+            valid_mask = np.isfinite(scalars_np)
+            scalars_np = scalars_np[valid_mask]
+            coords_np = coords_np[valid_mask]
+
+            if coords_np.size and scalars_np.size:
+                weights = scalars_np - scalars_np.min()
+                weights[weights < 0] = 0
+                if np.allclose(weights.sum(), 0):
+                    weights = None
+                else:
+                    weights = weights / weights.sum()
+
+                rng = np.random.default_rng()
+                replace = coords_np.shape[0] < seed_count
+                indices = rng.choice(
+                    coords_np.shape[0],
+                    size=min(seed_count, coords_np.shape[0]) if not replace else seed_count,
+                    replace=replace,
+                    p=weights,
+                )
+                seed_points = coords_np[indices]
+
+        if seed_points is not None and seed_points.size:
+            _seeds = dots2vtkarray(seed_points)
+            _flag = False
+        else:
+            _seeds = vtk.vtkPointSource()
+            _seeds.SetCenter(*center)
+            _seeds.SetNumberOfPoints(seed_count)
+            _seeds.SetRadius(_grid_diag / 2 if _grid_diag > 0 else 5.0)
+            # possible different distributions, see at
+            # https://vtk.org/doc/nightly/html/classvtkPointSource.html#a2029a3636eef7a32db31a10c9a904f9c
+            # random distribution, seek how to get and save point positions
+            _seeds.Update()
+            _flag = True
     else:
         _seeds = dots2vtkarray(seeds)
         _flag = False
