@@ -106,7 +106,9 @@ class TCDvis(QMainWindow):
                                     'num_particles': 15,
                                     'particle_type': 'sphere'},
                          'quiver': {'scale': 100,
-                                   'subsample': 5},
+                                   'subsample': 5,
+                                   'plane_axis': None,
+                                   'plane_value': None},
                          'magnitude': {'enable_volume': True,
                                        'enable_streamlines': True,
                                        'enable_glyphs': False,
@@ -703,12 +705,16 @@ class TCDvis(QMainWindow):
         elif current_prop == "quiver":
             # Handle quiver setup dialog
             quiverprm = QuiverSetupDialog(scale=self._default["quiver"]["scale"],
-                                         subsamp=self._default["quiver"]["subsample"])
+                                         subsamp=self._default["quiver"]["subsample"],
+                                         plane_axis=self._default["quiver"].get("plane_axis"),
+                                         plane_value=self._default["quiver"].get("plane_value"))
             quiverprm.exec()
             # Update the default values
             self._default["quiver"]["scale"] = quiverprm._scale
             self._default["quiver"]["subsample"] = quiverprm._subsamp
-            
+            self._default["quiver"]["plane_axis"] = quiverprm._plane_axis
+            self._default["quiver"]["plane_value"] = quiverprm._plane_value
+
             # Redraw quiver if it exists
             if 'tcd' in self._actors:
                 self.showtcd()
@@ -1081,9 +1087,33 @@ class TCDvis(QMainWindow):
             mask_index = filtervecatom(tmp_cube, 0.3)
             tmp_cube.cube[:, mask_index] = 0
             tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
-            self._actors['tcd'] = cubetk.quiv3d(tmp_cube,
-                                               scale=self._default["quiver"]["scale"],
-                                               subsample_factor=self._default["quiver"]["subsample"])
+            quiver_axis = self._default["quiver"].get("plane_axis")
+            quiver_plane = self._default["quiver"].get("plane_value")
+
+            if quiver_axis and quiver_plane is not None:
+                try:
+                    projected, (norm_min, norm_max) = cubetk.project_vector_field_to_plane(
+                        tmp_cube,
+                        axis=quiver_axis,
+                        plane_value=quiver_plane,
+                    )
+                except NoValidData as err:
+                    print(err)
+                    self._updatereder()
+                    return None
+
+                upper_bound = norm_max if norm_max > norm_min else norm_min + 1.0
+                self._actors['tcd'] = cubetk.quiv3d(
+                    projected,
+                    scale=self._default["quiver"]["scale"],
+                    subsample_factor=self._default["quiver"]["subsample"],
+                    lower=norm_min,
+                    upper=upper_bound,
+                )
+            else:
+                self._actors['tcd'] = cubetk.quiv3d(tmp_cube,
+                                                   scale=self._default["quiver"]["scale"],
+                                                   subsample_factor=self._default["quiver"]["subsample"])
         elif prop_cur == "magnitude":
             # Combined view: volume of |v| with optional streamlines or glyphs.
             # Select "Magnitude" in the property menu and use "Setup" to
