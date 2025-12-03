@@ -127,6 +127,8 @@ In order:
                       comma separated values: [xmin,xmax,ymix,ymax]')
     draw.add_argument('--symplot', action='store_true',
                       help='''Center the 2D plot at the Origin (0,0)''')
+    draw.add_argument('--plane', type=float,
+                      help='Coordinate of the slice along the projection axis')
     draw.add_argument('--printConv', action='store_true',
                       help='''Save in file the ETDM and MTDM for each state''')
 
@@ -229,6 +231,9 @@ if __name__ == '__main__':
         ngrdstp = OPTS.grid
     else:
         ngrdstp = NSTEP_BOX
+    if OPTS.plane is not None and not OPTS.axis:
+        print('ERROR: --plane requires --axis to choose the projection')
+        sys.exit()
     #if not OPTS.axis:
         #print("Error: Axis not specified")
         #sys.exit()
@@ -442,7 +447,8 @@ Coordinates (in Bohr)
         if OPTS.axis and (elst == lst_elst[-1]):
             if not os.path.exists(os.path.join(ressubfolder,
                                                'quiv2D_{:03d}.pdf'.format(elst))):
-                vec2, box2 = cbplt.simp_proj(cubdat, OPTS.axis)
+                vec2, box2 = cbplt.simp_proj(cubdat, OPTS.axis,
+                                             plane_val=OPTS.plane)
                 fig0, ax0 = plt.subplots()
                 if not OPTS.notitle:
                     ax0.set_title('State: {:03d}'.format(elst))

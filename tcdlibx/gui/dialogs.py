@@ -350,6 +350,8 @@ class QuiverSetupDialog(QDialog):
     def __init__(self,
                  scale: float,
                  subsamp: int,
+                 plane_axis: tp.Optional[str] = None,
+                 plane_value: tp.Optional[float] = None,
                  parent: tp.Optional[tp.Union[QDialog, None]] = None) -> None:
         """ initialize the dialog. Requires a dictionary with the parameters,
             the maximum norm value in the field and optionally a parent dialog
@@ -362,6 +364,8 @@ class QuiverSetupDialog(QDialog):
         super().__init__(parent)
         self._scale = scale
         self._subsamp = subsamp
+        self._plane_axis = plane_axis if plane_axis in ("x", "y", "z") else None
+        self._plane_value = plane_value
         self.setWindowTitle("Quiver Setup Dialog")
         self.vlay = QVBoxLayout()
         grid = QGridLayout()
@@ -377,6 +381,29 @@ class QuiverSetupDialog(QDialog):
         grid.addWidget(message, 2, 0)
         grid.addLayout(self._subsampline._hlay, 3, 0)
 
+        axis_label = QLabel("Projection axis (optional)")
+        self._axis_combo = QComboBox()
+        self._axis_combo.addItem("None", None)
+        for axis_choice in ("x", "y", "z"):
+            self._axis_combo.addItem(axis_choice, axis_choice)
+        if self._plane_axis:
+            idx = self._axis_combo.findData(self._plane_axis)
+            if idx >= 0:
+                self._axis_combo.setCurrentIndex(idx)
+
+        plane_label = QLabel("Slice coordinate along the axis (optional)")
+        self._plane_value_line = EditDoubleLine(
+            "Slice coordinate",
+            plane_value if plane_value is not None else 0.0,
+            QDoubleValidator(-1e6, 1e6, 6),
+        )
+        if plane_value is None:
+            self._plane_value_line._line.clear()
+        grid.addWidget(axis_label, 4, 0)
+        grid.addWidget(self._axis_combo, 5, 0)
+        grid.addWidget(plane_label, 6, 0)
+        grid.addLayout(self._plane_value_line._hlay, 7, 0)
+
         QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel 
 
         self.buttonBox = QDialogButtonBox(QBtn)
@@ -391,6 +418,9 @@ class QuiverSetupDialog(QDialog):
     def _setvals(self):
         self._scale = self._scalemol._getvalue()
         self._subsamp = self._subsampline._getvalue()
+        self._plane_axis = self._axis_combo.currentData()
+        plane_text = self._plane_value_line._line.text()
+        self._plane_value = self._plane_value_line._getvalue() if plane_text else None
 
 
 class MagnitudeSetupDialog(QDialog):

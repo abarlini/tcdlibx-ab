@@ -96,24 +96,49 @@ def to_grid(vec, size):
     return grid
 
 
-def simp_proj(cubdat1, axis, grid=False):
+def simp_proj(cubdat1, axis, grid=False, plane_val=None):
     """
     Project The cube data set on 2D plane
-    orthogonal to the selected axis
+    orthogonal to the selected axis.
+
+    If ``plane_val`` is provided, the projection is taken at the slice
+    closest to that coordinate along the selected axis instead of being
+    summed over the full axis range.
     """
 
     ithx, ith_one, ith_two = check_ax(axis)
-    # print(ithx, ith_one, ith_two)
+
+    slice_idx = None
+    if plane_val is not None:
+        axis_coords = []
+        for ith in range(cubdat1.npts[ithx]):
+            if ithx == 0:
+                idx = calc_off(ithx, ith, 0, 0, cubdat1.npts)
+            elif ithx == 1:
+                idx = calc_off(ithx, 0, ith, 0, cubdat1.npts)
+            else:
+                idx = calc_off(ithx, 0, 0, ith, cubdat1.npts)
+            axis_coords.append(cubdat1.box[ithx, idx])
+
+        axis_coords = np.array(axis_coords)
+        if plane_val < axis_coords.min() or plane_val > axis_coords.max():
+            raise NoValidData(plane_val, "slice outside axis range")
+        slice_idx = int(np.argmin(np.abs(axis_coords - plane_val)))
 
     box_tmp = np.zeros((2, cubdat1.npts[ith_one] * cubdat1.npts[ith_two]))
     vec_tmp = np.zeros_like((box_tmp))
     it_123 = 0
     for ith_2 in range(cubdat1.npts[ith_one]):
         for ith_3 in range(cubdat1.npts[ith_two]):
-            for ith_1 in range(cubdat1.npts[ithx]):
-                i123 = calc_off(ithx, ith_1, ith_2, ith_3, cubdat1.npts)
-                vec_tmp[0, it_123] += cubdat1.cube[ith_one, i123]
-                vec_tmp[1, it_123] += cubdat1.cube[ith_two, i123]
+            if slice_idx is None:
+                for ith_1 in range(cubdat1.npts[ithx]):
+                    i123 = calc_off(ithx, ith_1, ith_2, ith_3, cubdat1.npts)
+                    vec_tmp[0, it_123] += cubdat1.cube[ith_one, i123]
+                    vec_tmp[1, it_123] += cubdat1.cube[ith_two, i123]
+            else:
+                i123 = calc_off(ithx, slice_idx, ith_2, ith_3, cubdat1.npts)
+                vec_tmp[0, it_123] = cubdat1.cube[ith_one, i123]
+                vec_tmp[1, it_123] = cubdat1.cube[ith_two, i123]
             ioff = calc_off(ithx, 0, ith_2, ith_3, cubdat1.npts)
             box_tmp[0, it_123] = cubdat1.box[ith_one, ioff]
             box_tmp[1, it_123] = cubdat1.box[ith_two, ioff]
@@ -424,11 +449,11 @@ def animated_stream(fig0, params, fname='test.gif', nfr=27, savegif=False):
 
 
 def quiver_plt(ax0, cubdat, axis, vscale,
-               filtred=False, col='black', alf=1):
+               filtred=False, col='black', alf=1, plane_val=None):
     """
     TODO description
     """
-    vec2, box2 = simp_proj(cubdat, axis)
+    vec2, box2 = simp_proj(cubdat, axis, plane_val=plane_val)
     if filtred:
         vec_norm = np.sqrt((vec2 ** 2).sum(axis=0))
         # index = np.where(vec_norm > 5e-2)

@@ -12,7 +12,9 @@ from tcdlibx.utils.vtk_utils import vtk
 from vtk.util import numpy_support
 
 from tcdlibx.calc.cube_manip import CubeData, VecCubeData
+from tcdlibx.graph.cube_graphic import simp_proj
 from tcdlibx.graph.helpers import MyvtkActor
+from tcdlibx.utils.custom_except import NoValidData
 # from math import ceil
 
 def dots2vtkarray(dots: np.ndarray) -> vtk.vtkPolyData:
@@ -278,17 +280,23 @@ def quiv3d(
     # Apply subsampling if requested
     # Only apply subsampling for VecCubeData
     # For vtkPolyData, we assume it is from a clustering
-    if subsample_factor is not None and subsample_factor > 1 and isinstance(vecdata, VecCubeData):
-        # For image data, use masking
-        geom_filter = vtk.vtkImageDataGeometryFilter()
-        geom_filter.SetInputData(_grid)
-        geom_filter.Update()
+    if subsample_factor is not None and subsample_factor > 1:
+        if isinstance(vecdata, VecCubeData):
+            geom_filter = vtk.vtkImageDataGeometryFilter()
+            geom_filter.SetInputData(_grid)
+            geom_filter.Update()
 
-        mask = vtk.vtkMaskPoints()
-        mask.SetInputConnection(geom_filter.GetOutputPort())
-        mask.SetOnRatio(subsample_factor)
-        mask.Update()
-        _grid = mask.GetOutput()
+            mask = vtk.vtkMaskPoints()
+            mask.SetInputConnection(geom_filter.GetOutputPort())
+            mask.SetOnRatio(subsample_factor)
+            mask.Update()
+            _grid = mask.GetOutput()
+        elif isinstance(vecdata, vtk.vtkPolyData):
+            mask = vtk.vtkMaskPoints()
+            mask.SetInputData(_grid)
+            mask.SetOnRatio(subsample_factor)
+            mask.Update()
+            _grid = mask.GetOutput()
 
     arrow = vtk.vtkArrowSource()
     glyphs = vtk.vtkGlyph3D()
@@ -396,6 +404,48 @@ def draw_nm3d(crd, evec, ian,
     glyph_actor.GetProperty().SetColor(clrs.GetColor3d(color))
 
     return MyvtkActor(glyph_actor, glyphs)
+
+
+def project_vector_field_to_plane(
+    cubedata: VecCubeData,
+    axis: str,
+    plane_value: tp.Optional[float] = None,
+) -> tp.Tuple[vtk.vtkPolyData, tp.Tuple[float, float]]:
+    """Project a vector field onto a 2D plane and return vtkPolyData.
+
+    The resulting polydata stores vectors lying in the plane orthogonal to
+    ``axis`` and positions located at ``plane_value`` along that axis.
+
+    Returns:
+        tuple: (polydata, (min_norm, max_norm))
+
+    Raises:
+        NoValidData: if the requested slice is outside the cube bounds.
+    """
+
+    if axis not in ("x", "y", "z"):
+        raise NoValidData(axis, "axis must be one of x, y, or z")
+
+    vec_tmp, box_tmp = simp_proj(cubedata, axis, grid=False, plane_val=plane_value)
+
+    n_points = vec_tmp.shape[1]
+    vectors = np.zeros((n_points, 3))
+    positions = np.zeros((n_points, 3))
+
+    axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+    other_axes = [idx for idx in range(3) if idx != axis_index]
+    plane_coord = plane_value if plane_value is not None else cubedata.box[axis_index, 0]
+
+    vectors[:, other_axes[0]] = vec_tmp[0, :]
+    vectors[:, other_axes[1]] = vec_tmp[1, :]
+    positions[:, other_axes[0]] = box_tmp[0, :]
+    positions[:, other_axes[1]] = box_tmp[1, :]
+    positions[:, axis_index] = plane_coord
+
+    norms = np.linalg.norm(vectors, axis=1)
+    polydata = create_vector_field_polydata(positions, vectors, norms)
+
+    return polydata, (float(norms.min()), float(norms.max()))
 
 def draw_vectors(crd, vecs, tps, scale=1):
     """_summary_
