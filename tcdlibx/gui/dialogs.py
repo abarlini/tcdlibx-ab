@@ -393,6 +393,98 @@ class QuiverSetupDialog(QDialog):
         self._subsamp = self._subsampline._getvalue()
 
 
+class MagnitudeSetupDialog(QDialog):
+    """Dialog to configure magnitude volume rendering overlays."""
+
+    def __init__(
+        self,
+        volume_min: float,
+        volume_max: float,
+        enable_volume: bool,
+        enable_streamlines: bool,
+        enable_glyphs: bool,
+        n_streamlines: int,
+        glyph_subsample: int,
+        glyph_scale: float,
+        maxval: float,
+        parent: tp.Optional[tp.Union[QDialog, None]] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._volume_min = volume_min
+        self._volume_max = volume_max
+        self._enable_volume = enable_volume
+        self._enable_streamlines = enable_streamlines
+        self._enable_glyphs = enable_glyphs
+        self._n_streamlines = n_streamlines
+        self._glyph_subsample = glyph_subsample
+        self._glyph_scale = glyph_scale
+
+        self.setWindowTitle("Magnitude View Setup")
+        self.vlay = QVBoxLayout()
+        grid = QGridLayout()
+        self.vlay.addLayout(grid)
+
+        # Toggles
+        self._show_volume = QCheckBox("Enable volume rendering")
+        self._show_volume.setChecked(enable_volume)
+        self._show_streamlines = QCheckBox("Overlay streamlines")
+        self._show_streamlines.setChecked(enable_streamlines)
+        self._show_glyphs = QCheckBox("Overlay glyphs/arrows")
+        self._show_glyphs.setChecked(enable_glyphs)
+
+        grid.addWidget(self._show_volume, 0, 0)
+        grid.addWidget(self._show_streamlines, 1, 0)
+        grid.addWidget(self._show_glyphs, 2, 0)
+
+        # Volume opacity thresholds
+        thr_label = QLabel("Opacity thresholds (|v|)")
+        grid.addWidget(thr_label, 0, 1)
+        min_validator = QDoubleValidator(0.0, maxval if maxval > 0 else 1e12, 6)
+        max_validator = QDoubleValidator(0.0, maxval if maxval > 0 else 1e12, 6)
+        self._vol_min_line = EditDoubleLine("Low opacity", volume_min, min_validator)
+        self._vol_max_line = EditDoubleLine("High opacity", volume_max, max_validator)
+        grid.addLayout(self._vol_min_line._hlay, 1, 1)
+        grid.addLayout(self._vol_max_line._hlay, 2, 1)
+
+        # Streamline and glyph density controls
+        stream_validator = QIntValidator(1, 1000)
+        stream_validator.setLocale(QLocale('English'))
+        glyph_validator = QIntValidator(1, 500)
+        glyph_validator.setLocale(QLocale('English'))
+        scale_validator = QDoubleValidator(0.01, 1e5, 4)
+        scale_validator.setLocale(QLocale('English'))
+
+        stream_label = QLabel("Number of streamlines")
+        grid.addWidget(stream_label, 3, 0)
+        self._stream_line = EditIntLine("Streamlines", n_streamlines, stream_validator)
+        grid.addLayout(self._stream_line._hlay, 3, 1)
+
+        glyph_label = QLabel("Glyph sampling and scale")
+        grid.addWidget(glyph_label, 4, 0)
+        self._glyph_sub = EditIntLine("Subsample", glyph_subsample, glyph_validator)
+        self._glyph_scale_line = EditDoubleLine("Scale", glyph_scale, scale_validator)
+        grid.addLayout(self._glyph_sub._hlay, 4, 1)
+        grid.addLayout(self._glyph_scale_line._hlay, 5, 1)
+
+        QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        self.buttonBox = QDialogButtonBox(QBtn)
+        self.buttonBox.accepted.connect(self.accept)
+        self.accepted.connect(self._setvals)
+        self.buttonBox.rejected.connect(self.reject)
+        self.vlay.addWidget(self.buttonBox)
+        self.setLayout(self.vlay)
+
+    def _setvals(self):
+        self._volume_min = self._vol_min_line._getvalue()
+        self._volume_max = self._vol_max_line._getvalue()
+        self._enable_volume = self._show_volume.isChecked()
+        self._enable_streamlines = self._show_streamlines.isChecked()
+        self._enable_glyphs = self._show_glyphs.isChecked()
+        self._n_streamlines = self._stream_line._getvalue()
+        self._glyph_subsample = self._glyph_sub._getvalue()
+        self._glyph_scale = self._glyph_scale_line._getvalue()
+
+
 class StreamLineSetupDialog(QDialog):
     """Dialog for setting up stream lines
 

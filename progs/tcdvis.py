@@ -27,7 +27,12 @@ from tcdlibx.calc.cube_manip import VecCubeData, VtcdData, cube_parser
 from tcdlibx.graph.helpers import EleMolecule, VibMolecule, filtervecatom
 import tcdlibx.graph.cube_graphvtk as cubetk
 from tcdlibx.gui.dialogs import (
-    SavePngDialog, SavePngSeriesDialog, StreamLineSetupDialog, TCDDialog, QuiverSetupDialog
+    MagnitudeSetupDialog,
+    QuiverSetupDialog,
+    SavePngDialog,
+    SavePngSeriesDialog,
+    StreamLineSetupDialog,
+    TCDDialog,
 )
 from tcdlibx.io.estp_io import PHYSFACT, get_elemol, get_vibmol
 from tcdlibx.io.jsonio import read_json
@@ -47,6 +52,8 @@ class TCDvis(QMainWindow):
     This class provides a complete GUI interface for:
     - Loading and visualizing molecular structure data (fchk files)
     - Displaying electronic and vibrational TCD data as streamlines, quiver plots, etc.
+    - Rendering the |v| magnitude as a semi-transparent volume with optional
+      streamlines or glyph overlays via the "Magnitude" mode
     - Animated particle visualization along streamlines
     - Interactive isosurface and vector field visualization
     - Export capabilities for images and data
@@ -99,7 +106,15 @@ class TCDvis(QMainWindow):
                                     'num_particles': 15,
                                     'particle_type': 'sphere'},
                          'quiver': {'scale': 100,
-                                   'subsample': 5},}
+                                   'subsample': 5},
+                         'magnitude': {'enable_volume': True,
+                                       'enable_streamlines': True,
+                                       'enable_glyphs': False,
+                                       'volume_min': None,
+                                       'volume_max': None,
+                                       'n_streamlines': 80,
+                                       'glyph_subsample': 8,
+                                       'glyph_scale': 75.}}
 
         self.initUI()
 
@@ -331,6 +346,7 @@ class TCDvis(QMainWindow):
         self.prop.setGeometry(QRect(40, 40, 491, 31))
         self.prop.addItem('')
         self.prop.addItem('Streamlines')
+        self.prop.addItem('Magnitude')
         self.prop.addItem('Quiver')
         self.prop.addItem('MoE')
         self.prop.addItem('EoM')
@@ -406,8 +422,28 @@ class TCDvis(QMainWindow):
             self.stop_animation()
         # Reset animation flag
         self._default["vfield"]["animate_particles"] = False
-        
+
         self.ren.RemoveAllViewProps()
+
+    def _remove_actor_key(self, key: str):
+        """Remove an actor or volume stored in ``self._actors``.
+
+        This helper keeps removal logic consistent when switching modes.
+        """
+        if key not in self._actors:
+            return
+        actor_wrapper = self._actors.pop(key)
+        actor_obj = actor_wrapper.actor
+        try:
+            if isinstance(actor_obj, vtk.vtkVolume):
+                self.ren.RemoveVolume(actor_obj)
+            elif isinstance(actor_obj, vtk.vtkActor2D):
+                self.ren.RemoveActor2D(actor_obj)
+            else:
+                self.ren.RemoveActor(actor_obj)
+        except Exception:
+            # Fallback removal path
+            self.ren.RemoveActor(actor_obj)
 
     def _updatereder(self):
         self.vtkWidget.GetRenderWindow().Render()
@@ -676,7 +712,41 @@ class TCDvis(QMainWindow):
             # Redraw quiver if it exists
             if 'tcd' in self._actors:
                 self.showtcd()
-        
+
+        elif current_prop == "magnitude":
+            tmp_cube = copy.deepcopy(self._fchk.get_tcd(self._activest))
+            mag_vals = tmp_cube.get_norm()
+            mag_max = mag_vals.max() if mag_vals.size else 0.0
+            if self._default["magnitude"]["volume_min"] is None:
+                self._default["magnitude"]["volume_min"] = 0.1 * mag_max if mag_max else 0.0
+            if self._default["magnitude"]["volume_max"] is None:
+                self._default["magnitude"]["volume_max"] = 0.6 * mag_max if mag_max else 1.0
+
+            mag_prm = MagnitudeSetupDialog(
+                volume_min=self._default["magnitude"]["volume_min"],
+                volume_max=self._default["magnitude"]["volume_max"],
+                enable_volume=self._default["magnitude"]["enable_volume"],
+                enable_streamlines=self._default["magnitude"]["enable_streamlines"],
+                enable_glyphs=self._default["magnitude"]["enable_glyphs"],
+                n_streamlines=self._default["magnitude"]["n_streamlines"],
+                glyph_subsample=self._default["magnitude"]["glyph_subsample"],
+                glyph_scale=self._default["magnitude"]["glyph_scale"],
+                maxval=mag_max,
+            )
+            mag_prm.exec()
+
+            self._default["magnitude"]["volume_min"] = mag_prm._volume_min
+            self._default["magnitude"]["volume_max"] = mag_prm._volume_max
+            self._default["magnitude"]["enable_volume"] = mag_prm._enable_volume
+            self._default["magnitude"]["enable_streamlines"] = mag_prm._enable_streamlines
+            self._default["magnitude"]["enable_glyphs"] = mag_prm._enable_glyphs
+            self._default["magnitude"]["n_streamlines"] = mag_prm._n_streamlines
+            self._default["magnitude"]["glyph_subsample"] = mag_prm._glyph_subsample
+            self._default["magnitude"]["glyph_scale"] = mag_prm._glyph_scale
+
+            if 'tcd' in self._actors:
+                self.showtcd()
+
         self._updatereder()
 
     def _enablefieldsetup(self):
@@ -685,7 +755,7 @@ class TCDvis(QMainWindow):
             self.stop_animation()
         
         current_prop = self.prop.currentText().lower()
-        if current_prop in ["streamlines", "quiver"]:
+        if current_prop in ["streamlines", "quiver", "magnitude"]:
             if self._activest in self._fchk.avail_tcd():
                 self._fieldsetup.setEnabled(True)
         else:
@@ -963,15 +1033,8 @@ class TCDvis(QMainWindow):
         self._updatereder()
 
     def showtcd(self):
-        if 'tcd' in self._actors:
-            self.ren.RemoveActor(self._actors['tcd'].actor)
-            del self._actors['tcd']
-        if 'tcddir' in self._actors:
-            self.ren.RemoveActor(self._actors['tcddir'].actor)
-            del self._actors['tcddir']
-        if 'tcdbar' in self._actors:
-            self.ren.RemoveActor(self._actors['tcdbar'].actor)
-            del self._actors['tcdbar']
+        for _name in ['tcd', 'tcddir', 'tcdbar', 'tcd_stream', 'tcd_glyphs']:
+            self._remove_actor_key(_name)
         
         # Stop any running animation
         if self._show_particles:
@@ -1018,9 +1081,53 @@ class TCDvis(QMainWindow):
             mask_index = filtervecatom(tmp_cube, 0.3)
             tmp_cube.cube[:, mask_index] = 0
             tmp_cube.loc2wrd *=  PHYSFACT.bohr2ang
-            self._actors['tcd'] = cubetk.quiv3d(tmp_cube, 
+            self._actors['tcd'] = cubetk.quiv3d(tmp_cube,
                                                scale=self._default["quiver"]["scale"],
                                                subsample_factor=self._default["quiver"]["subsample"])
+        elif prop_cur == "magnitude":
+            # Combined view: volume of |v| with optional streamlines or glyphs.
+            # Select "Magnitude" in the property menu and use "Setup" to
+            # enable/disable the overlays and tune opacity thresholds.
+            tmp_cube.loc2wrd *= PHYSFACT.bohr2ang
+            mag_cube = tmp_cube.get_norm(cube=True)
+            mag_defaults = self._default["magnitude"]
+            mag_max = mag_cube.cube.max() if mag_cube.cube.size else 0.0
+            if mag_defaults["volume_min"] is None:
+                mag_defaults["volume_min"] = 0.1 * mag_max if mag_max else 0.0
+            if mag_defaults["volume_max"] is None:
+                mag_defaults["volume_max"] = 0.6 * mag_max if mag_max else 1.0
+
+            if mag_defaults["enable_volume"]:
+                self._actors['tcd'] = cubetk.volume_render_scalar(
+                    mag_cube,
+                    opacity_range=(mag_defaults["volume_min"], mag_defaults["volume_max"]),
+                )
+
+            if mag_defaults["enable_streamlines"]:
+                if self._fchk.samplepoints is None:
+                    self._fchk.sample_ellipse_space(
+                        self._default["vfield"]["npoints"],
+                        scale=self._default["vfield"]["scalellipse"],
+                    )
+                self._actors['tcd_stream'] = cubetk.fillstreamline(
+                    tmp_cube,
+                    nseeds=mag_defaults["n_streamlines"],
+                    clipping=(self._default["vfield"]["vfmax"], self._default["vfield"]["vfmin"]),
+                    minspeed=self._default["vfield"]["mspeed"],
+                    seeds=self._fchk.samplepoints,
+                )
+                self.ren.AddActor(self._actors['tcd_stream'].actor)
+
+            if mag_defaults["enable_glyphs"]:
+                glyph_cube = copy.deepcopy(tmp_cube)
+                mask_index = filtervecatom(glyph_cube, 0.3)
+                glyph_cube.cube[:, mask_index] = 0
+                self._actors['tcd_glyphs'] = cubetk.quiv3d(
+                    glyph_cube,
+                    scale=mag_defaults["glyph_scale"],
+                    subsample_factor=mag_defaults["glyph_subsample"],
+                )
+                self.ren.AddActor(self._actors['tcd_glyphs'].actor)
         elif prop_cur == "moe":
             if self._moltype == 'ele':
                 vec = tmp_cube.integrate() / self._fchk.get_exeng(self._activest)
@@ -1070,7 +1177,12 @@ class TCDvis(QMainWindow):
                 tmp = self._fchk.get_dtm(self._activest, cgs=False)
                 print(f"From FCHK: {np.dot(tmp[0], tmp[0]):.5f}")
 
-        self.ren.AddActor(self._actors['tcd'].actor)
+        if 'tcd' in self._actors:
+            _tcd_actor = self._actors['tcd'].actor
+            if isinstance(_tcd_actor, vtk.vtkVolume):
+                self.ren.AddVolume(_tcd_actor)
+            else:
+                self.ren.AddActor(_tcd_actor)
         if 'tcdbar' in self._actors:
             self.ren.AddActor2D(self._actors['tcdbar'].actor)
         if 'tcddir' in self._actors:

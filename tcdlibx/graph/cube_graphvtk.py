@@ -615,6 +615,69 @@ def _countur(grid, isoval, active='scalar', colors=None, opacity=0.3):
     return MyvtkActor(isosurf_actor, contourFilter)
 
 
+def volume_render_scalar(
+    cubedata: CubeData,
+    opacity_range: tp.Tuple[float, float],
+    colormap: tp.Optional[tp.Sequence[tp.Tuple[float, float, float]]] = None,
+    logscale: bool = False,
+) -> MyvtkActor:
+    """Create a volume rendering actor for a scalar cube.
+
+    Args:
+        cubedata: Scalar :class:`CubeData` with ``nval`` equal to 1.
+        opacity_range: Two values defining where the opacity starts to ramp up
+            and where it reaches its peak opacity.
+        colormap: Optional sequence of RGB tuples used to build the color
+            transfer function. When ``None`` a cool-to-warm gradient is used.
+        logscale: Apply a logarithmic scaling to the scalar values before
+            rendering.
+
+    Returns:
+        MyvtkActor: wrapper containing a :class:`vtkVolume` and its mapper.
+    """
+
+    grid = fillcubeimage(cubedata, vec=False, logscale=logscale)
+    grid.GetPointData().SetActiveScalars('scalar')
+    scalar_range = grid.GetScalarRange()
+
+    mapper = vtk.vtkGPUVolumeRayCastMapper()
+    mapper.SetInputData(grid)
+
+    color_transfer = vtk.vtkColorTransferFunction()
+    if colormap is None:
+        # Default: blue (low) -> cyan -> yellow -> red (high)
+        color_transfer.AddRGBPoint(scalar_range[0], 0.1, 0.2, 0.6)
+        color_transfer.AddRGBPoint((scalar_range[0] + scalar_range[1]) / 2, 0.0, 0.9, 0.8)
+        color_transfer.AddRGBPoint(scalar_range[1], 0.9, 0.2, 0.1)
+    else:
+        step = (scalar_range[1] - scalar_range[0]) / max(len(colormap) - 1, 1)
+        for i, rgb in enumerate(colormap):
+            color_transfer.AddRGBPoint(scalar_range[0] + i * step, *rgb)
+
+    opacity = vtk.vtkPiecewiseFunction()
+    min_visible, max_visible = opacity_range
+    min_visible = max(min_visible, scalar_range[0])
+    max_visible = max(min_visible, max_visible)
+
+    # Keep low values mostly transparent and ramp up smoothly
+    opacity.AddPoint(scalar_range[0], 0.0)
+    opacity.AddPoint(min_visible, 0.0)
+    opacity.AddPoint(max_visible, 0.35)
+    opacity.AddPoint(scalar_range[1], 0.55)
+
+    volume_property = vtk.vtkVolumeProperty()
+    volume_property.SetColor(color_transfer)
+    volume_property.SetScalarOpacity(opacity)
+    volume_property.ShadeOn()
+    volume_property.SetInterpolationTypeToLinear()
+
+    volume = vtk.vtkVolume()
+    volume.SetMapper(mapper)
+    volume.SetProperty(volume_property)
+
+    return MyvtkActor(volume, mapper)
+
+
 def draw_colorbar(targetactor: vtk.vtkActor, title: str,
                   nlabs: int = 5) -> MyvtkActor:
     """
